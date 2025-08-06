@@ -79,6 +79,15 @@ typedef LONG NTSTATUS;
 _PRAGMA (clang diagnostic ignored "-Wenum-compare")
 
 /**
+ * Squelch this new warning in 'cl' ver. 19.44.35213:
+ *   warning C5287: operands are different enum types 'FWPM_NET_EVENT_TYPE_' and '_FWPM_NET_EVENT_TYPE';
+ *   use an explicit cast to silence this warning
+ */
+#if !defined(__clang__) && defined(_MSC_FULL_VER) && (_MSC_FULL_VER>= 194435213)
+  #pragma warning (disable: 5287)
+#endif
+
+/**
  * \def FW_API_LOW
  *  The lowest API level supported here.
  *
