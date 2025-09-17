@@ -414,11 +414,11 @@
 #endif
 
 #ifndef IOCGROUP
-#define IOCGROUP(x) (((x) >> 8) & 0xFF)
+#define IOCGROUP(x)     (((x) >> 8) & 0xFF)
 #endif
 
 #ifndef MSG_WAITALL
-#define MSG_WAITALL 0x8
+#define MSG_WAITALL     0x8
 #endif
 
 /**
@@ -926,8 +926,8 @@ static const struct search_list tcp_options[] = {
                     ADD_VALUE (TCP_CONGESTION_ALGORITHM),
                     ADD_VALUE (TCP_DELAY_FIN_ACK),
                     ADD_VALUE (TCP_OFFLOAD_NO_PREFERENCE),
-                    ADD_VALUE (TCP_OFFLOAD_NOT_PREFERRED),
-                 // ADD_VALUE (TCP_OFFLOAD_PREFERRED),   /* Ignore; same value as 'TCP_EXPEDITED_1122' above */
+                 // ADD_VALUE (TCP_OFFLOAD_NOT_PREFERRED),  /* Ignore; same value as 'TCP_NDELAY' above */
+                 // ADD_VALUE (TCP_OFFLOAD_PREFERRED),      /* Ignore; same value as 'TCP_EXPEDITED_1122' above */
                     ADD_VALUE (TCP_MAXRTMS),
                     ADD_VALUE (TCP_FASTOPEN),
                     ADD_VALUE (TCP_KEEPCNT),
@@ -1254,7 +1254,7 @@ static const struct search_list wsa_events_flgs[] = {
                   };
 
 /**
- * The command-codes used in `ioctlsocket()` for option-groups `f` or `s`.
+ * The command-codes used in `ioctlsocket()` for option-groups `f`, `s` or `t`.
  */
 static const struct search_list ioctl_commands[] = {
                     ADD_VALUE (FIONREAD),
@@ -1264,11 +1264,16 @@ static const struct search_list ioctl_commands[] = {
                     ADD_VALUE (SIOCGHIWAT),
                     ADD_VALUE (SIOCSLOWAT),
                     ADD_VALUE (SIOCGLOWAT),
-                    ADD_VALUE (SIOCATMARK)
+                    ADD_VALUE (SIOCATMARK),
+                    ADD_VALUE (SIOCGMSFILTER),
+                    ADD_VALUE (SIOCSIPMSFILTER),
+                    ADD_VALUE (SIOCGIPMSFILTER),
+                    ADD_VALUE (SIOCSMSFILTER)
                   };
 
 /**
  * The codes used in `WSAIoctl()`.
+  * Some of these are also in option-group `t`.
  */
 static const struct search_list sio_codes[] = {
                     ADD_VALUE (SIO_ABSORB_RTRALERT),
@@ -1748,12 +1753,41 @@ void dump_icmp_error (const ICMP_ERROR_INFO *icmp)
   ARGSUSED (icmp);
 }
 
+void dump_ioctl_sio_codes_groups (void)
+{
+  int i, group;
+
+  printf ("%*sioctl_commands[] groups:\n", g_cfg.trace_indent + 2, "");
+  for (i = 0; i < DIM(ioctl_commands); i++)
+  {
+    group = IOCGROUP (ioctl_commands[i].value);
+    if (group != 0)
+       printf ("%*s  %s = '%c' / %d\n", g_cfg.trace_indent + 2, "", ioctl_commands[i].name, group, group);
+  }
+  printf ("%*ssio_codes[] groups:\n", g_cfg.trace_indent + 2, "");
+  for (i = 0; i < DIM(sio_codes); i++)
+  {
+    group = IOCGROUP (sio_codes[i].value);
+    if (group != 0)
+       printf ("%*s  %s = '%c' / %d\n", g_cfg.trace_indent + 2, "", sio_codes[i].name, group, group);
+  }
+}
+
 const char *ioctlsocket_cmd_name (long cmd)
 {
   static char buf [50];
   int    group = IOCGROUP (cmd);
 
-  if (group == 'f' || group == 's')
+#if 0
+  static bool done = false;
+  if (!done && g_cfg.trace_level >= 1)
+  {
+    dump_ioctl_sio_codes_groups();
+    done = true;
+  }
+#endif
+
+  if (group == 'f' || group == 's' || group == 't')
      return list_lookup_name (cmd, ioctl_commands, DIM(ioctl_commands));
   snprintf (buf, sizeof(buf), "cmd %ld?", cmd);
   return (buf);
@@ -1807,7 +1841,7 @@ static UINT dump_data_internal (const void *data_p, unsigned data_len, const cha
     {
       int ch = data [i+ofs];
 
-      if (ch < ' ' || ch == 0x7F)    /* non-printable */
+      if (ch < ' ' || ch >= 0x7F)    /* non-printable */
            C_putc ('.');
       else C_putc_raw (ch);
 
