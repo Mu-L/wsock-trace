@@ -278,7 +278,7 @@ typedef DWORD64 (WINAPI *PTRANSLATE_ADDRESS_ROUTINE64) (
 /**
  * \def DEF_PY_FUNC
  *
- * Similarily for Python function which are always `__cdecl`.
+ * Similarily for Python functions which are always `__cdecl`.
  */
 #define DEF_PY_FUNC(ret, f, args)  typedef ret (__cdecl *func_##f) args; \
                                    static func_##f p_##f = NULL
@@ -337,6 +337,7 @@ DEF_WIN_FUNC (DWORD,   UnDecorateSymbolName, (IN  PCSTR DecoratedName,
                                               OUT PSTR  UnDecoratedName,
                                               IN  DWORD UndecoratedLength,
                                               IN  DWORD Flags));
+
 #if USE_SymEnumSymbolsEx
   DEF_WIN_FUNC (BOOL, SymEnumSymbolsEx,      (IN     HANDLE                         hProcess,
                                               IN     ULONG64                        BaseOfDll,
@@ -409,7 +410,7 @@ static struct LoadTable dbghelp_funcs[] = {
                         ADD_VALUE (0, "dbghelp.dll", StackWalk64),
                         ADD_VALUE (0, "dbghelp.dll", SymLoadModule64),
 #if USE_SymEnumSymbolsEx
-                        ADD_VALUE (0, "dbghelp.dll", SymEnumSymbolsEx),
+                        ADD_VALUE (1, "dbghelp.dll", SymEnumSymbolsEx),
                         ADD_VALUE (1, "dbghelp.dll", SymSrvGetFileIndexInfo),
 #endif
                         ADD_VALUE (0, "dbghelp.dll", UnDecorateSymbolName),
@@ -1833,7 +1834,6 @@ bool StackWalkInit (void)
 
   TRACE (1, "g_module: %s, g_sym_dir: %s\n", g_module, g_sym_dir);
 
-
 #ifdef SCRT_IS_UCRT_DLL_IN_USE
     g_long_CPP_syms = (SCRT_IS_UCRT_DLL_IN_USE() == 0);
 #elif defined(_MT)
@@ -1855,6 +1855,7 @@ bool StackWalkInit (void)
     }
 #endif
   }
+
   if (!ok)
   {
     TRACE (1, "StackWalker failed to initialize.\n");
