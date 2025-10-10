@@ -278,7 +278,7 @@ typedef DWORD64 (WINAPI *PTRANSLATE_ADDRESS_ROUTINE64) (
 /**
  * \def DEF_PY_FUNC
  *
- * Similarily for Python functions which are always `__cdecl`.
+ * Similarily for CPython functions which are always `__cdecl`.
  */
 #define DEF_PY_FUNC(ret, f, args)  typedef ret (__cdecl *func_##f) args; \
                                    static func_##f p_##f = NULL
@@ -343,7 +343,7 @@ DEF_WIN_FUNC (DWORD,   UnDecorateSymbolName, (IN  PCSTR DecoratedName,
                                               IN     ULONG64                        BaseOfDll,
                                               IN_OPT const char                    *Mask,
                                               IN     PSYM_ENUMERATESYMBOLS_CALLBACK EnumSymbolsCallback,
-                                              IN_OPT VOID                           *UserContext,
+                                              IN_OPT VOID                          *UserContext,
                                               IN     DWORD                          Options));
 
   DEF_WIN_FUNC (BOOL, SymSrvGetFileIndexInfo, (IN  PCTSTR             File,
@@ -1437,12 +1437,11 @@ static void enum_and_load_modules (void)
 
 static bool set_symbol_search_path (void)
 {
-  DWORD  symOptions;
-  char   tmp [TBUF_LEN], path [TBUF_LEN];
-  char  *p    = path;
-  char  *end  = path + sizeof(path) - 1;
-  char  *dir  = NULL;
-  size_t left = end - p;
+  DWORD symOptions;
+  char  tmp [TBUF_LEN], path [TBUF_LEN];
+  char *p   = path;
+  char *end = path + sizeof(path) - 1;
+  char *dir = NULL;
 
   if (GetModuleFileName(NULL, tmp, sizeof(tmp)) && (dir = dirname(tmp)) != NULL)
   {
@@ -1462,44 +1461,26 @@ static bool set_symbol_search_path (void)
     }
 #endif
     if (strcmp(dir, g_data.curr_dir))
-    {
-      p   += snprintf (p, left, "%s;", dir);
-      left = end - p;
-    }
+       p += snprintf (p, end - p, "%s;", dir);
     free (dir);
   }
 
   if (g_data.curr_dir[0])  /* set in wsock_trace_init() */
-  {
-    p += snprintf (p, left, "%s;", g_data.curr_dir);
-    left = end - p;
-  }
+     p += snprintf (p, end - p, "%s;", g_data.curr_dir);
 
 #if USE_PythonHook
   if (g_py_dir)
-  {
-    p += snprintf (p, left, "%s\\DLLs;", g_py_dir);
-    left = end - p;
-  }
+     p += snprintf (p, end - p, "%s\\DLLs;", g_py_dir);
 #endif
 
   if (GetEnvironmentVariable("_NT_SYMBOL_PATH", tmp, sizeof(tmp)))
-  {
-    p   += snprintf (p, left, "%s;", tmp);
-    left = end - p;
-  }
+     p += snprintf (p, end - p, "%s;", tmp);
 
   if (GetEnvironmentVariable("_NT_ALTERNATE_SYMBOL_PATH", tmp, sizeof(tmp)))
-  {
-    p   += snprintf (p, left, "%s;", tmp);
-    left = end - p;
-  }
+     p += snprintf (p, end - p, "%s;", tmp);
 
   if (GetEnvironmentVariable("SYSTEMROOT", tmp, sizeof(tmp)))
-  {
-    p   += snprintf (p, left, "%s;", tmp);
-    left = end - p;
-  }
+     p += snprintf (p, end - p, "%s;", tmp);
 
   end = strrchr (path, '\0');
   if (end[-1] == ';')
@@ -1752,7 +1733,8 @@ static int compare_on_addr (const void **_a, const void **_b)
 static DWORD enum_module_symbols (smartlist_t *sl, const char *module, bool is_last, bool verbose)
 {
   struct ModuleEntry *me;
-  char  *dot, pattern [_MAX_PATH+3];
+  char  *dot;
+  char   pattern [_MAX_PATH+3];
   int    idx, save;
 
   TRACE (3, "\nEnumerating all PDB symbols for %s:\n", module);
@@ -1762,6 +1744,7 @@ static DWORD enum_module_symbols (smartlist_t *sl, const char *module, bool is_l
     TRACE (2, "SymEnumSymbolsEx() not found in dbghelp.dll\n");
     return (0);
   }
+
   if (!g_proc)
   {
     TRACE (2, "'g_proc' is zero?!.\n");
@@ -1859,6 +1842,16 @@ bool StackWalkInit (void)
   if (!ok)
   {
     TRACE (1, "StackWalker failed to initialize.\n");
+
+    /**
+     * \todo
+     * Check the version of `dbghelp.dll` (search `%PATH%` first) against the
+     * `%WindowsSdkVer%` version we built with. If a mis-match if too low,
+     * print a warning.
+     *
+     * Use `GetFileVersionInfoSize()` and `GetFileVersionInfo()`.
+     */
+
     return (false);
   }
 
@@ -1895,10 +1888,9 @@ static DWORD decode_one_stack_frame (HANDLE thread, STACKFRAME64 *stk, CONTEXT *
    * find the line and return the proper displacement.
    */
   char    undec_name [MAX_NAMELEN];             /* undecorated name */
-  DWORD   displacement     = 0;
-  DWORD   temp_dispacement = 0;
-  DWORD   max_displacement = 100;
-  DWORD   flags            = UNDNAME_NAME_ONLY;  /* show procedure info */
+  DWORD   temp_dispacement, max_displacement;
+  DWORD   displacement;
+  DWORD   flags            = UNDNAME_NAME_ONLY; /* show procedure info */
   DWORD64 addr;
   DWORD64 ofs_from_symbol = 0;                  /* How far from the symbol we were */
   DWORD   ofs_from_line   = 0;                  /* How far from the line we were */
@@ -1911,6 +1903,7 @@ static DWORD decode_one_stack_frame (HANDLE thread, STACKFRAME64 *stk, CONTEXT *
    */
   bool have_PDB_info = true;
 
+  max_displacement = 100;
   if (g_cfg.max_displacement > 0)
      max_displacement = g_cfg.max_displacement;
 
@@ -1962,6 +1955,8 @@ static DWORD decode_one_stack_frame (HANDLE thread, STACKFRAME64 *stk, CONTEXT *
   memset (&Line, '\0', sizeof(Line));
   Line.SizeOfStruct = sizeof(Line);
 
+  displacement = temp_dispacement = 0;
+
   while (temp_dispacement < max_displacement &&
          !(*p_SymGetLineFromAddr64)(g_proc, addr - temp_dispacement, &ofs_from_line, &Line))
        ++temp_dispacement;
@@ -2012,9 +2007,8 @@ static DWORD decode_one_stack_frame (HANDLE thread, STACKFRAME64 *stk, CONTEXT *
 char *StackWalkShow (HANDLE thread, CONTEXT *ctx)
 {
   DWORD        err  = 0;
-  size_t       left = sizeof(ret_buf);
   char        *str  = ret_buf;
-  char        *end  = str + left;
+  char        *end  = str + sizeof(ret_buf);
   STACKFRAME64 stk;    /* in/out stackframe */
 
   memset (&stk, 0, sizeof(stk));
@@ -2034,14 +2028,13 @@ char *StackWalkShow (HANDLE thread, CONTEXT *ctx)
   if (err == 0)
      return (ret_buf);
 
-  str += snprintf (ret_buf, sizeof(ret_buf), "0x%" ADDR_FMT, ADDR_CAST(stk.AddrPC.Offset));
-  left = end - str;
+  str += snprintf (str, end - str, "0x%" ADDR_FMT, ADDR_CAST(stk.AddrPC.Offset));
 
   /*
    * \todo: In this case figure out the module-name (from the base-addresses in
    *        g_modules_list) and print which module that is missing a .PDB file.
    */
-  snprintf (str, left, " (no PDB, err: %lu)", err);
+  snprintf (str, end - str, " (no PDB, err: %lu)", err);
 
   return (ret_buf);
 }
