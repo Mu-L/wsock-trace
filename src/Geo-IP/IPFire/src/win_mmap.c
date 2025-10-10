@@ -31,12 +31,15 @@ void *mmap (void *address, size_t length, int protection, int flags, int fd, off
 {
   void     *map = NULL;
   HANDLE    handle;
-  intptr_t  h = _get_osfhandle (fd);
+  HANDLE    fd_h = INVALID_HANDLE_VALUE;
   DWORD     access = 0;
   uint64_t  pstart, psize, poffset;
 
   (void) address;  /* unused args */
   (void) flags;
+
+  if (fd > -1)
+     fd_h = (HANDLE) _get_osfhandle (fd);
 
   if (si.dwAllocationGranularity == 0)
      GetNativeSystemInfo (&si);
@@ -45,18 +48,24 @@ void *mmap (void *address, size_t length, int protection, int flags, int fd, off
   poffset = offset - pstart;
   psize   = poffset + length;
 
+  /**
+   * If `fd_h == INVALID_HANDLE_VALUE`, the `CreateFileMapping()` indicates that the
+   * file mapping object will be backed by the system's paging file, rather than
+   * an actual file on disk.
+   */
+
   switch (protection)
   {
     case PROT_READ:
-         handle = CreateFileMapping ((HANDLE)h, 0, PAGE_READONLY, 0, 0, NULL);
+         handle = CreateFileMapping (fd_h, 0, PAGE_READONLY, 0, 0, NULL);
          access = FILE_MAP_READ;
          break;
     case PROT_WRITE:
-         handle = CreateFileMapping ((HANDLE)h, 0, PAGE_READWRITE, 0, 0, NULL);
+         handle = CreateFileMapping (fd_h, 0, PAGE_READWRITE, 0, 0, NULL);
          access = FILE_MAP_WRITE;  /* Or FILE_MAP_COPY? */
          break;
     case PROT_READWRITE:
-         handle = CreateFileMapping ((HANDLE)h, 0, PAGE_READWRITE, 0, 0, NULL);
+         handle = CreateFileMapping (fd_h, 0, PAGE_READWRITE, 0, 0, NULL);
          access = FILE_MAP_ALL_ACCESS;
          break;
     default:
