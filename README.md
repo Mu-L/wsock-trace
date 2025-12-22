@@ -1,6 +1,6 @@
 ## Wsock-trace v. 0.3.7:
 
-[![Build Status](https://ci.appveyor.com/api/projects/status/github/gvanem/wsock-trace?branch=master&svg=true)](https://ci.appveyor.com/project/gvanem/wsock-trace)
+[![Build status](https://ci.appveyor.com/api/projects/status/unfah5bxpdbskqtc?svg=true)](https://ci.appveyor.com/project/gvanem/wsock-trace)
 
 A drop-in tracing library / DLL for most normal Winsock calls.
 It sits between your program and the Winsock library (`ws2_32.dll`).
@@ -119,7 +119,7 @@ Enter the `src` sub-directory and do:
 
 Link with one of these libraries (instead of the default `ws2_32.lib`):
   * `wsock_trace-x86.lib`  for `x86`
-  * `wsock_trace-x86.lib`  for `x64`
+  * `wsock_trace-x64.lib`  for `x64`
 
 Thus most normal Winsock calls are traced on entry and exit.
 
