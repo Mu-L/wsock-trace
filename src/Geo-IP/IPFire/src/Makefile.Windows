@@ -293,7 +293,7 @@ py3_install/location:
             $(OBJ_DIR)/test-signature.obj
 
 $(STATIC_LIB): $(LIBLOC_OBJ)
-	lib -nologo -out:$@ $(LIBLOC_OBJ)
+	lib -nologo -out:$@ -machine:$(CPU) $(LIBLOC_OBJ)
 	@echo
 
 $(IMPORT_LIB): $(LIBLOC_DLL)
@@ -398,12 +398,13 @@ run_lua_test: lua_module                 \
               $(LUA_ROOT)/bin/luajit.exe \
               lua_install/test.lua
 	$(call green_msg, Running $(BRIGHT_WHITE)$(LUA_ROOT)/bin/luajit.exe lua_install/test.lua)
-	@export LOC_LOG=6                                              \
-	 export LUA_TRACE=0                                            \
-	 export LUA_CPATH=$(realpath lua_install)/?.dll                \
-	 export LUA_PATH=$(realpath lua_install)/luaunit/?.lua         \
-	 export TEST_DATABASE=$(realpath ../data/database.db)          \
-	 export TEST_SIGNING_KEY=$(realpath ../data/signing-key.pem) ; \
+	 export LOC_LOG=6                                            \
+	 export LUA_TRACE=0                                          \
+	 export LUA_CPATH=$(realpath lua_install)/?.dll              \
+	 export LUA_PATH=$(realpath lua_install)/luaunit/?.lua       \
+	 export TEST_DATABASE=$(realpath ../data/database.db)        \
+	 export TEST_SIGNING_KEY=$(realpath ../data/signing-key.pem) \
+	 export WSOCK_TRACE_LEVEL=0 ;                                \
 	$(LUA_ROOT)/bin/luajit.exe lua_install/test.lua
 	@echo
 
@@ -448,6 +449,7 @@ test-%.exe: $(OBJ_DIR)/test-%.obj $(IMPORT_LIB)
 	$(call link_EXE, $@, $^)
 
 run_tests runtests: $(TEST_PROGS)
+	export WSOCK_TRACE_LEVEL=0 ;                        \
 	for p in $^ ; do                                    \
 	    echo -e "\n\e[1;32mRunning \e[1;37m$$p:\e[0m" ; \
 	    ./$$p ;                                         \
