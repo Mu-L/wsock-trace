@@ -381,7 +381,7 @@ $(OBJ_DIR)/luajit.rc: $(THIS_FILE) | $(OBJ_DIR)
 	$(call create_rc_file, $@, "The LuaJIT program", VFT_APP)
 
 $(CC).args: $(THIS_FILE)
-	$(call white_msg, All CFLAGS are in $@.)
+	$(call green_msg, All CFLAGS are in $(BRIGHT_WHITE)$@)
 	$(call create_resp_file, $@, -c $(CFLAGS))
 
 $(OBJ_DIR)/cpp-filter.py: $(THIS_FILE) | $(OBJ_DIR)
@@ -417,7 +417,6 @@ BRIGHT_WHITE = \e[1;37m
 
 colour_msg  = @echo -e "$(1)\e[0m"
 green_msg   = $(call colour_msg,$(BRIGHT_GREEN)$(strip $(1)))
-white_msg   = $(call colour_msg,$(BRIGHT_WHITE)$(strip $(1)))
 gen_to_from = $(call green_msg, Generating $(BRIGHT_WHITE)$(strip $(1)) $(BRIGHT_GREEN)from $(BRIGHT_WHITE)$(strip $(2)))
 
 define Warning
