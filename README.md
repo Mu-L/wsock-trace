@@ -1,6 +1,6 @@
 ## Wsock-trace v. 0.3.7:
 
-[![Build status](https://ci.appveyor.com/api/projects/status/unfah5bxpdbskqtc?svg=true)](https://ci.appveyor.com/project/gvanem/wsock-trace)
+[![Build Status](https://ci.appveyor.com/api/projects/status/unfah5bxpdbskqtc/branch/master?svg=true)](https://ci.appveyor.com/project/gvanem/wsock-trace)
 
 A drop-in tracing library / DLL for most normal Winsock calls.
 It sits between your program and the Winsock library (`ws2_32.dll`).
