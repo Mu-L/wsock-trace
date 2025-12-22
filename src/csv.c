@@ -217,7 +217,7 @@ static const char *CSV_get_next_field (struct CSV_context *ctx)
            break;
     }
     if (new_state != old_state)
-       TRACE (3, "%s -> %s\n", state_name(old_state), state_name(new_state));
+       TRACE (4, "%s -> %s\n", state_name(old_state), state_name(new_state));
 
     if (new_state == STATE_STOP && (isspace(ctx->delimiter) || iscntrl(ctx->delimiter)))
     {
@@ -252,7 +252,7 @@ static const char *CSV_get_next_field (struct CSV_context *ctx)
   if (ctx->c_in == '\n')
      line--;
 
-  TRACE (3, "rec: %u, line: %u, field: %u: '%s'.\n", ctx->rec_num, line, ctx->field_num, ret);
+  TRACE (4, "rec: %u, line: %u, field: %u: '%s'.\n", ctx->rec_num, line, ctx->field_num, ret);
 
   if (new_state == STATE_EOF)
      return (NULL);
@@ -292,7 +292,7 @@ static int CSV_parse_file (struct CSV_context *ctx)
   }
 
   ctx->rec_num++;
-  TRACE (3, "\n");
+  TRACE (4, "\n");
   return (ctx->field_num == ctx->num_fields);
 
 quit:
@@ -303,7 +303,7 @@ quit:
   }
   if (ctx->state == STATE_EOF)
   {
-    TRACE (3, "  Reached EOF on line %u, field %u.\n", ctx->line_num, ctx->field_num);
+    TRACE (4, "  Reached EOF on line %u, field %u.\n", ctx->line_num, ctx->field_num);
     return (0);
   }
   TRACE (2, "  Unable to parse line %u, field %u.\n", ctx->line_num, ctx->field_num);
@@ -656,8 +656,7 @@ static void CSV_cfile_close (struct CSV_context *ctx)
            "/*\n"
            " * %s\n"
            " */\n"
-           "#ifndef %s_H\n"
-           "#define %s_H\n"
+           "#pragma once\n"
            "\n"
            "#include <stdio.h>\n"
            "#include <stdlib.h>\n"
@@ -666,8 +665,6 @@ static void CSV_cfile_close (struct CSV_context *ctx)
            "#include <getopt.h>\n"
            "#include \"csv.h\"\n"
            "\n"
-           "#include <packon.h>\n"
-           "\n"
            "#undef  _REC\n"
            "#undef  _DATA\n"
            "#undef  _DATA_SZ\n"
@@ -675,8 +672,10 @@ static void CSV_cfile_close (struct CSV_context *ctx)
            "#define _DATA    %s_data\n"
            "#define _DATA_SZ %s_data_size\n"
            "\n"
+           "#include <packon.h>\n"
+           "\n"
            "typedef struct _REC {\n",
-           comment, prefix, prefix, prefix, prefix, prefix);
+           comment, prefix, prefix, prefix);
 
   for (i = 0; i < ctx->num_fields; i++)
       fprintf (h->file, "        char field_%d [%zu+1];\n", i, ctx->field_sizes[i]);
@@ -694,7 +693,7 @@ static void CSV_cfile_close (struct CSV_context *ctx)
   fprintf (h->file,
            "  _REC  *_DATA;\n"
            "  size_t _DATA_SZ;\n"
-           " };\n"
+           "\n"
            "  static size_t %s_field_size[] = { ",
            prefix);
 
@@ -702,6 +701,7 @@ static void CSV_cfile_close (struct CSV_context *ctx)
       fprintf (h->file, "%zu%s", ctx->field_sizes[i], i < ctx->num_fields-1 ? ", " : "");
 
   fprintf (h->file,
+           "};\n"
            "  static size_t %s_field_ofs[]  = { ",
            prefix);
 
@@ -1030,9 +1030,8 @@ static void CSV_cfile_close (struct CSV_context *ctx)
            "  return (rc);\n"
            "}\n"
            "#endif /* CSV_TEST */\n"
-           "#endif /* %s_H */\n"
            "\n",
-           prefix, prefix, prefix);
+           prefix, prefix);
 
   if (h->file != stdout)
      fclose (h->file);
@@ -1304,7 +1303,7 @@ const void *CSV_generic_lookup (const char *value, unsigned field, size_t field_
                                 CSV_bsearch_func cmp_func)
 {
   const char *p, *p_max;
-  int   rec;
+  size_t      rec;
 
   if (cmp_func)
   {
@@ -1337,7 +1336,7 @@ const void *CSV_generic_lookup (const char *value, unsigned field, size_t field_
 
   for (rec = 0; rec < max_records; rec++)
   {
-    CSV_TRACE (2, "rec: %d, p: '%s'\n", rec, p);
+    CSV_TRACE (2, "rec: %zu, p: '%s'\n", rec, p);
     if (p > p_max)
     {
       CSV_TRACE (0, "p > p_max!!\n");
@@ -1345,7 +1344,7 @@ const void *CSV_generic_lookup (const char *value, unsigned field, size_t field_
     }
     if (!strcmp(value, p)) //, field_size))
     {
-      CSV_TRACE (1, "value '%s' found in record %d (field %d).\n", value, rec, field);
+      CSV_TRACE (1, "value '%s' found in record %zu (field %d).\n", value, rec, field);
       return (p - field_ofs);
     }
     p += rec_size;
