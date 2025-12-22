@@ -1050,7 +1050,7 @@ static void test_mask (int family, int start_ip_width, int ip_width, int cidr_wi
 {
   struct in_addr  network4;
   struct in6_addr network6;
-  int             i, bits;
+  int             i, bit;
   int             max_bits = (family == AF_INET6 ? 128 : 32);
   uint64          total_ips = U64_SUFFIX(0);
   const char     *total_str;
@@ -1089,7 +1089,7 @@ static void test_mask (int family, int start_ip_width, int ip_width, int cidr_wi
        str_ncpy (network_str, INET_addr_ntop2(family, &network6), sizeof(network_str));
   else str_ncpy (network_str, INET_addr_ntop2(family, &network4), sizeof(network_str));
 
-  for (bits = 0; bits <= max_bits; bits++)
+  for (bit = 0; bit <= max_bits; bit++)
   {
     char start_ip_str [MAX_IP6_SZ+1];
     char end_ip_str   [MAX_IP6_SZ+1];
@@ -1098,9 +1098,9 @@ static void test_mask (int family, int start_ip_width, int ip_width, int cidr_wi
 
     if (!lshift_prob)
     {
-      uint64 max64 = U64_SUFFIX(1) << (max_bits - bits);
+      uint64 max64 = U64_SUFFIX(1) << (max_bits - bit);
 
-      if (bits == max_bits)
+      if (bit == max_bits)
            total_ips = 1;
       else if (max64 > U64_SUFFIX(0))
            total_ips = max64;
@@ -1111,9 +1111,9 @@ static void test_mask (int family, int start_ip_width, int ip_width, int cidr_wi
     {
       struct in6_addr mask, start_ip, end_ip;
 
-      INET_util_get_mask6 (&mask, bits);
+      INET_util_get_mask6 (&mask, bit);
 
-      if (bits == 0)
+      if (bit == 0)
       {
         /* A `mask` from `INET_util_get_mask6 (&mask, 0)` cannot be used here.
          */
@@ -1134,9 +1134,9 @@ static void test_mask (int family, int start_ip_width, int ip_width, int cidr_wi
     {
       struct in_addr mask, start_ip, end_ip;
 
-      INET_util_get_mask4 (&mask, bits);
+      INET_util_get_mask4 (&mask, bit);
 
-      if (bits == 0)
+      if (bit == 0)
       {
         /**
          * A `mask` from `INET_util_get_mask4 (&mask, 0)` cannot be used here.
@@ -1163,8 +1163,8 @@ static void test_mask (int family, int start_ip_width, int ip_width, int cidr_wi
          total_str = "Inf";
     else total_str = qword_str (total_ips);
 
-    snprintf (cidr_str, sizeof(cidr_str), "%s/%u", network_str, bits);
-    C_printf (line_fmt, bits,
+    snprintf (cidr_str, sizeof(cidr_str), "%s/%u", network_str, bit);
+    C_printf (line_fmt, bit,
               cidr_width, cidr_str,
               start_ip_width, start_ip_str,
               ip_width, end_ip_str,
