@@ -60,7 +60,7 @@ struct DNSBL_info {
        unsigned   bits;
        int        family;  /* AF_INET or AF_INET6 */
        DNSBL_type type;
-       char       SBL_ref[10];
+       char       SBL_ref [10];
      };
 
 static smartlist_t *DNSBL_list = NULL;
@@ -175,7 +175,7 @@ static int DNSBL_compare_is_on_net6 (const void *key, const void **member)
     /* Since AF_INET6 networks are sorted last in 'DNSBL_list', force
      * 'smartlist_bsearch_idx()' to look closer to the end-index.
      */
-    TRACE (3, "Wrong family\n");
+    TRACE (3, "Wrong family (%d)\n", dnsbl->family);
     return (1);
   }
 
@@ -189,6 +189,13 @@ static int DNSBL_compare_is_on_net6 (const void *key, const void **member)
     char   ip_str      [MAX_IP6_SZ+1];
     char   start_ip_str[MAX_IP6_SZ+1];
     char   end_ip_str  [MAX_IP6_SZ+1];
+    int    i;
+
+    for (i = 0; i < IN6ADDRSZ; i++)
+    {
+      start_ip.s6_bytes[i] = dnsbl->u.ip6.network.s6_bytes[i] & dnsbl->u.ip6.mask.s6_bytes[i];
+      end_ip.s6_bytes[i]   = start_ip.s6_bytes[i] | ~dnsbl->u.ip6.mask.s6_bytes[i];
+    }
 
     INET_addr_ntop (AF_INET6, &dnsbl->u.ip6.network, net_str, sizeof(net_str), NULL);
     INET_addr_ntop (AF_INET6, &dnsbl->u.ip6.mask, mask_str, sizeof(mask_str), NULL);
@@ -197,8 +204,12 @@ static int DNSBL_compare_is_on_net6 (const void *key, const void **member)
     INET_addr_ntop (AF_INET6, &end_ip, end_ip_str, sizeof(end_ip_str), NULL);
 
     TRACE (3, "ip: %-20s net: %-20s (%-20s - %-30s)\n"
-               "                mask: 0x%s, rc: %d\n",
-           ip_str, net_str, start_ip_str, end_ip_str, mask_str, rc);
+              "              mask: 0x%s, rc: %d\n",
+           strupr(ip_str),
+           strupr(net_str),
+           strupr(start_ip_str),
+           strupr(end_ip_str),
+           strupr(mask_str), rc);
   }
   return (rc);
 }
