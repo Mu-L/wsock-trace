@@ -164,10 +164,8 @@ static int encode_proto_str (const char *proto_str, bool multi_fields)
     for (tok = str_tok_r (copy, "/", &end); tok;
          tok = str_tok_r (NULL, "/", &end), i++)
     {
-      TRACE (3, "tok[%d]: '%s'.\n", i, tok);
       rc |= encode_proto_str (tok, false);
     }
-    TRACE (3, "rc: 0x%02X.\n", rc);
   }
   return (rc);
 }
@@ -224,9 +222,6 @@ static int services_bsearch_port_proto (const void *key, const void **member)
 
   if (rc == 0 && (lookup->proto & PROTO_UNKNOWN) == 0)
      rc = compare_proto (lookup->proto, se->proto);
-
-  TRACE (3, "key: %4u se->name: %-20s se->port: %5u, se->proto: %-20s, rc: %d\n",
-         lookup->port, se->name, se->port, decode_proto_str(se->proto), rc);
   return (rc);
 }
 
