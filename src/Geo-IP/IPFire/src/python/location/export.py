@@ -16,6 +16,7 @@
 #                                                                             #
 ###############################################################################
 
+import datetime
 import io
 import ipaddress
 import logging
@@ -298,3 +299,181 @@ class Exporter(object):
 			if not directory:
 				for writer in writers.values():
 					writer.print()
+
+
+class ZoneExporter(object):
+	def __init__(self, db, format, origin, ttl=None, master=None,
+			zonemaster=None, nameservers=[]):
+		self.db = db
+		self.format = format
+		self.origin = origin
+		self.ttl = ttl or 86400
+		self.master = master or "invalid."
+		self.zonemaster = zonemaster or "zonemaster.invalid."
+		self.nameservers = nameservers
+
+		try:
+			self.write = self.formats[format]
+		except KeyError as e:
+			raise ValueError("Unsupported format for a zone: %s" % format)
+
+	def export(self, f):
+		assert self.write, "No write method has been selected"
+
+		created_at = datetime.datetime.fromtimestamp(self.db.created_at)
+
+		# Write the header
+		f.write(";##############################################################################\n")
+		f.write("; IPFire Location DNS Zone\n")
+		f.write(";##############################################################################\n")
+		if self.db.vendor:
+			f.write("; Vendor     : %s\n" % self.db.vendor)
+		if self.db.license:
+			f.write("; License    : %s\n" % self.db.license)
+		f.write("; Updated At : %s\n" % created_at.isoformat())
+		f.write(";##############################################################################\n")
+
+		f.write("$ORIGIN %s\n" % self.origin)
+		if self.ttl:
+			f.write("$TTL %s\n" % self.ttl)
+
+		# Write the SOA
+		f.write("@ IN SOA %s %s %s 3600 600 3600000 %s\n" % \
+			(self.master, self.zonemaster, self.db.created_at, self.ttl))
+
+		# Write any nameservers
+		for nameserver in self.nameservers:
+			f.write("@ IN NS %s\n" % nameserver)
+
+		# Write the vendor
+		if self.db.vendor:
+			f.write("@ IN TXT \"vendor=%s\"\n" % self.db.vendor)
+
+		# Write the license
+		if self.db.license:
+			f.write("@ IN TXT \"license=%s\"\n" % self.db.license)
+
+		# Write update timestamp in human-readable way
+		f.write("@ IN TXT \"updated-at=%s\"\n" % created_at.isoformat())
+
+		# Write all records
+		self.write(self, f)
+
+	def _write_network(self, f, network, *args, **kwargs):
+		"""
+			Writes a single record to the output file
+		"""
+		name = network.reverse_pointer(suffix="")
+		if name is None:
+			for subnet in network.subnets:
+				self._write_network(f, subnet, *args, **kwargs)
+
+			return
+
+		self._write_record(f, name, *args, **kwargs)
+
+	def _write_record(self, f, name, type, content):
+		f.write("%s IN %s %s\n" % (name, type, content))
+
+	# ASN
+
+	def _write_asn(self, f):
+		for asn in self.db.ases:
+			self._write_record(f, asn.number, "TXT", "\"%s\"" % asn.name)
+
+	# Bogons
+
+	def _write_bogons(self, f):
+		for network in self.db.list_bogons():
+			self._write_network(f, network, "A", "127.0.0.1")
+
+	# CC
+
+	def _write_cc(self, f):
+		for network in self.db.networks:
+			cc = network.country_code
+
+			# Skip empty country codes
+			if not cc:
+				continue
+
+			self._write_network(f, network, "TXT", "\"%s\"" % cc)
+
+	# Origin
+
+	def _write_origin(self, f):
+		for network in self.db.networks:
+			rp = network.reverse_pointer(suffix="")
+
+			# If we don't have a reverse pointer, we will have to split the network
+			# into its subnets and call ourselves again.
+			if rp is None:
+				for subnet in network.subnets:
+					self._write_origin_network(f, subnet)
+
+				continue
+
+			self._write_origin_network(f, network)
+
+	def _write_origin_network(self, f, network):
+		# Skip the network if it does not belong to an AS
+		if network.asn is None:
+			return
+
+		# Fetch the ASN
+		asn = self.db.get_as(network.asn)
+		if asn is None:
+			return
+
+		self._write_record(f, network, "TXT", "\"%s\"" % asn)
+
+	# Prefix
+
+	def _write_prefix(self, f):
+		for network in self.db.networks:
+			self._write_network(f, network, "TXT", "\"%s\"" % network)
+
+	# Everything
+
+	def _write_everything(self, f):
+		flags = {
+			_location.NETWORK_FLAG_ANONYMOUS_PROXY    : "is-anonymous-proxy",
+			_location.NETWORK_FLAG_SATELLITE_PROVIDER : "is-satellite-provider",
+			_location.NETWORK_FLAG_ANYCAST            : "is-anycast",
+			_location.NETWORK_FLAG_DROP               : "is-drop",
+		}
+
+		# Write all networks
+		for network in self.db.networks:
+			# List the network
+			self._write_network(f, network, "A", "127.0.0.2")
+
+			# Write the prefix
+			self._write_network(f, network, "TXT", "\"prefix=%s\"" % network)
+
+			# Write the country code
+			if network.country_code:
+				self._write_network(f, network, "TXT", "\"cc=%s\"" % network.country_code)
+
+			# Write the ASN
+			if network.asn:
+				self._write_network(f, network, "TXT", "\"as-number=%s\"" % network.asn)
+
+				# Write the AS name
+				asn = self.db.get_as(network.asn)
+				if asn:
+					self._write_network(f, network, "TXT", "\"as-name=%s\"" % asn.name)
+
+			# Write flags
+			for flag in flags:
+				if network.has_flag(flag):
+					self._write_network(f, network, "TXT", "\"%s=yes\"" % flags[flag])
+
+	formats = {
+		"asn"        : _write_asn,
+		"cc"         : _write_cc,
+		"bogons"     : _write_bogons,
+		"origin"     : _write_origin,
+		"prefix"     : _write_prefix,
+		"everything" : _write_everything,
+	}

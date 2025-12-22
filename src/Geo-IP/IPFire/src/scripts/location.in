@@ -189,6 +189,27 @@ class CLI(object):
 		export.add_argument("objects", nargs="*", help=_("List country codes or ASNs to export"))
 		export.set_defaults(func=self.handle_export)
 
+		# Export DNS Zones
+		export_zone = subparsers.add_parser("export-zone",
+			help=_("Exports the database in DNS zone format"),
+		)
+		export_zone.add_argument("type", help=_("Output Type"),
+			choices=location.export.ZoneExporter.formats.keys(),
+		)
+		export_zone.add_argument("--output", required=True, type=argparse.FileType("w"),
+			help=_("The file to write the output to"))
+		export_zone.add_argument("--origin", required=True,
+			help=_("The origin of the DNS zone"))
+		export_zone.add_argument("--ttl",
+			help=_("The TTL of the DNS zone"))
+		export_zone.add_argument("--master",
+			help=_("The zone master"))
+		export_zone.add_argument("--zonemaster",
+			help=_("The email address of the zone's administrator"))
+		export_zone.add_argument("--nameserver", action="append",
+			help=_("Nameservers to be added to the zone"))
+		export_zone.set_defaults(func=self.handle_export_zone)
+
 		args = parser.parse_args()
 
 		# Configure logging
@@ -614,6 +635,20 @@ class CLI(object):
 
 		e = location.export.Exporter(db, writer)
 		e.export(ns.directory, countries=countries, asns=asns, families=families)
+
+	def handle_export_zone(self, db, ns):
+		"""
+			Exports the database in DNS zone format
+		"""
+		e = location.export.ZoneExporter(db,
+			format      = ns.type,
+			origin      = ns.origin,
+			ttl         = ns.ttl,
+			master      = ns.master,
+			zonemaster  = ns.zonemaster,
+			nameservers = ns.nameserver,
+		)
+		e.export(ns.output)
 
 
 def format_timedelta(t):

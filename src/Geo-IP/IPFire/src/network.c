@@ -703,7 +703,7 @@ int loc_network_new_from_database_v1(struct loc_ctx* ctx, struct loc_network** n
 
 static char* loc_network_reverse_pointer6(struct loc_network* network, const char* suffix) {
 	char* buffer = NULL;
-	int r;
+	size_t length = 1;
 
 	unsigned int prefix = loc_network_prefix(network);
 
@@ -716,24 +716,59 @@ static char* loc_network_reverse_pointer6(struct loc_network* network, const cha
 	if (!suffix)
 		suffix = "ip6.arpa.";
 
-	// Initialize the buffer
-	r = asprintf(&buffer, "%s", suffix);
-	if (r < 0)
+	const int nibbles = prefix / 4;
+
+	// Make space for all nibbles
+	length += nibbles * 2;
+
+	// Make space for the star for wildcards
+	if (prefix < 128)
+		length += 2;
+
+	// Make space for the suffix
+	length += strlen(suffix);
+
+	// Allocate the buffer
+	buffer = malloc(length);
+	if (!buffer)
 		goto ERROR;
 
-	for (unsigned int i = 0; i < (prefix / 4); i++) {
-		r = asprintf(&buffer, "%x.%s",
-			(unsigned int)loc_address_get_nibble(&network->first_address, i), buffer);
-		if (r < 0)
-			goto ERROR;
-	}
+	char* p = buffer;
 
 	// Add the asterisk
 	if (prefix < 128) {
-		r = asprintf(&buffer, "*.%s", buffer);
-		if (r < 0)
-			goto ERROR;
+		*p++ = '*';
+
+		if (nibbles || *suffix)
+			*p++ = '.';
 	}
+
+	static const char hex[] = "0123456789abcdef";
+
+	// Add nibbles
+	for (int i = nibbles - 1; i >= 0; i--) {
+		int nibble = loc_address_get_nibble(&network->first_address, i);
+
+		// Check if the nibble is in range
+		if (nibble < 0 || nibble > 0x0f) {
+			errno = ERANGE;
+			goto ERROR;
+		}
+
+		*p++ = hex[nibble];
+
+		if (i > 0 || *suffix)
+			*p++ = '.';
+	}
+
+	// Add suffix (may be empty)
+	if (*suffix) {
+		memcpy(p, suffix, strlen(suffix));
+		p += strlen(suffix);
+	}
+
+	// Terminate the buffer
+	*p = '\0';
 
 	return buffer;
 
@@ -746,7 +781,7 @@ ERROR:
 
 static char* loc_network_reverse_pointer4(struct loc_network* network, const char* suffix) {
 	char* buffer = NULL;
-	int r;
+	size_t length = 1;
 
 	unsigned int prefix = loc_network_prefix(network);
 
@@ -759,50 +794,65 @@ static char* loc_network_reverse_pointer4(struct loc_network* network, const cha
 	if (!suffix)
 		suffix = "in-addr.arpa.";
 
-	switch (prefix) {
-		case 32:
-			r = asprintf(&buffer, "%d.%d.%d.%d.%s",
-				loc_address_get_octet(&network->first_address, 3),
-				loc_address_get_octet(&network->first_address, 2),
-				loc_address_get_octet(&network->first_address, 1),
-				loc_address_get_octet(&network->first_address, 0),
-				suffix);
-			break;
+	const int octets = prefix / 8;
 
-		case 24:
-			r = asprintf(&buffer, "*.%d.%d.%d.%s",
-				loc_address_get_octet(&network->first_address, 2),
-				loc_address_get_octet(&network->first_address, 1),
-				loc_address_get_octet(&network->first_address, 0),
-				suffix);
-			break;
+	// Make space for all octets
+	length += octets * 4;
 
-		case 16:
-			r = asprintf(&buffer, "*.%d.%d.%s",
-				loc_address_get_octet(&network->first_address, 1),
-				loc_address_get_octet(&network->first_address, 0),
-				suffix);
-			break;
+	// Make space for the star
+	if (prefix < 32)
+		length += 2;
 
-		case 8:
-			r = asprintf(&buffer, "*.%d.%s",
-				loc_address_get_octet(&network->first_address, 0),
-				suffix);
-			break;
+	// Make space for the suffix
+	length += strlen(suffix);
 
-		case 0:
-			r = asprintf(&buffer, "*.%s", suffix);
-			break;
+	// Allocate the buffer
+	buffer = malloc(length);
+	if (!buffer)
+		goto ERROR;
 
-		// To make the compiler happy
-		default:
-			return NULL;
+	char* p = buffer;
+
+	// Add asterisk if needed (prefix < 32)
+	if (prefix < 32) {
+		*p++ = '*';
+
+		if (octets || *suffix)
+			*p++ = '.';
 	}
 
-	if (r < 0)
-		return NULL;
+	// Append octets in reverse order
+	for (int i = octets - 1; i >= 0; i--) {
+		int oct = loc_address_get_octet(&network->first_address, i);
+		if (oct < 0) {
+			errno = ERANGE;
+			goto ERROR;
+		}
+
+		// Convert octet to decimal string
+		p += sprintf(p, "%d", oct);
+
+		// Dot between octets or before suffix
+		if (i > 0 || *suffix)
+			*p++ = '.';
+	}
+
+	// Add suffix (may be empty)
+	if (*suffix) {
+		memcpy(p, suffix, strlen(suffix));
+		p += strlen(suffix);
+	}
+
+	// Terminate the buffer
+	*p = '\0';
 
 	return buffer;
+
+ERROR:
+	if (buffer)
+		free(buffer);
+
+	return NULL;
 }
 
 LOC_EXPORT char* loc_network_reverse_pointer(struct loc_network* network, const char* suffix) {

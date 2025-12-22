@@ -72,7 +72,7 @@
     #define LIBLOC_NETERR() get_neterr()
 
     #if !defined(Py_PYTHON_H) && !defined(ssize_t) && !defined(_SSIZE_T_DEFINED)
-      #define ssize_t SSIZE_T     /* From <basetsd.h> */
+      #define ssize_t INT_PTR
       #define _SSIZE_T_DEFINED 1
     #endif
 

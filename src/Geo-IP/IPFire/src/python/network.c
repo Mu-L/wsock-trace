@@ -27,6 +27,8 @@
 #include "locationmodule.h"
 #include "network.h"
 
+#undef ERROR
+
 static PyObject* PyList_FromNetworkList(struct loc_network_list* networks) {
 	PyObject* list = PyList_New(0);
 	if (!networks)
@@ -305,6 +307,85 @@ static PyObject* Network_reverse_pointer(NetworkObject* self, PyObject* args, Py
 	return ret;
 }
 
+static PyObject* Network_get_subnets(NetworkObject* self) {
+	struct loc_network* subnet1 = NULL;
+	struct loc_network* subnet2 = NULL;
+	PyObject* result = NULL;
+	PyObject* s1 = NULL;
+	PyObject* s2 = NULL;
+	int r;
+
+	// Make subnets
+	r = loc_network_subnets(self->network, &subnet1, &subnet2);
+	if (r < 0) {
+		PyErr_SetFromErrno(PyExc_OSError);
+		goto ERROR;
+	}
+
+	// Determine the length of the tuple
+	Py_ssize_t l = 0;
+
+	if (subnet1)
+		l++;
+
+	if (subnet2)
+		l++;
+
+	// Create a new result tuple
+	result = PyTuple_New(l);
+	if (!result)
+		goto ERROR;
+
+	Py_ssize_t pos = 0;
+
+	// Convert the subnets into Python objects
+	if (subnet1) {
+		s1 = new_network(&NetworkType, subnet1);
+		if (!s1)
+			goto ERROR;
+
+		// Append it to the list
+		PyTuple_SET_ITEM(result, pos++, s1);
+		Py_INCREF(s1);
+	}
+
+	if (subnet2) {
+		s2 = new_network(&NetworkType, subnet2);
+		if (!s2)
+			goto ERROR;
+
+		// Append it to the list
+		PyTuple_SET_ITEM(result, pos++, s2);
+		Py_INCREF(s2);
+	}
+
+	// Cleanup
+	if (subnet1)
+		loc_network_unref(subnet1);
+	if (subnet2)
+		loc_network_unref(subnet2);
+	if (s1)
+		Py_DECREF(s1);
+	if (s2)
+		Py_DECREF(s2);
+
+	return result;
+
+ERROR:
+	if (subnet1)
+		loc_network_unref(subnet1);
+	if (subnet2)
+		loc_network_unref(subnet2);
+	if (result)
+		Py_DECREF(result);
+	if (s1)
+		Py_DECREF(s1);
+	if (s2)
+		Py_DECREF(s2);
+
+	return NULL;
+}
+
 static struct PyMethodDef Network_methods[] = {
 	{
 		"exclude",
@@ -385,6 +466,13 @@ static struct PyGetSetDef Network_getsetters[] = {
 	{
 		"_last_address",
 		(getter)Network_get__last_address,
+		NULL,
+		NULL,
+		NULL,
+	},
+	{
+		"subnets",
+		(getter)Network_get_subnets,
 		NULL,
 		NULL,
 		NULL,
