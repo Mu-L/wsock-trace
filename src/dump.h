@@ -22,6 +22,7 @@ extern void dump_hostent   (const char *name, const struct hostent *h);
 extern void dump_servent   (const struct servent *s);
 extern void dump_protoent  (const struct protoent *p);
 extern void dump_nameinfo  (const char *host, const char *serv, DWORD flags);
+extern void dump_nameinfow (const wchar_t *host, const wchar_t *serv, DWORD flags);
 extern void dump_select    (const fd_set *rd, const fd_set *wr, const fd_set *ex, int indent);
 extern void dump_wsapollfd (const WSAPOLLFD *fd_array, ULONG fds, int indent, bool output);
 

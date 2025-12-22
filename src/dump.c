@@ -3070,8 +3070,23 @@ void dump_nameinfo (const char *host, const char *serv, DWORD flags)
 {
   C_indent (g_cfg.trace_indent+2);
   C_printf ("~4name: %s, serv: %s~0\n",
-                host ? host : "NULL", serv ? serv : "NULL");
+            host ? host : "NULL", serv ? serv : "NULL");
   check_and_dump_idna (host);
+  ARGSUSED (flags);
+}
+
+void dump_nameinfow (const wchar_t *host, const wchar_t *serv, DWORD flags)
+{
+  char host_a [1000];
+
+  strcpy (host_a, "??");
+  if (g_cfg.IDNA.enable && host)
+     WideCharToMultiByte (CP_ACP, 0, host, (int)wcslen(host), host_a, (int)sizeof(host_a), NULL, NULL);
+
+  C_indent (g_cfg.trace_indent+2);
+  C_printf ("~4name: %ws, serv: %ws~0\n",
+            host ? host : L"NULL", serv ? serv : L"NULL");
+  check_and_dump_idna (host ? host_a : NULL);
   ARGSUSED (flags);
 }
 

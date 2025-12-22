@@ -182,6 +182,14 @@ DEF_FUNC (int, getnameinfo, (const struct sockaddr *sa,
                              DWORD                  serv_buf_size,
                              int                    flags));
 
+DEF_FUNC (int, GetNameInfoW, (const SOCKADDR *sockaddr,
+                              socklen_t       sockaddr_len,
+                              wchar_t        *host,
+                              DWORD           host_size,
+                              wchar_t        *serv_buf,
+                              DWORD           serv_buf_size,
+                              INT             flags));
+
 DEF_FUNC (int, getaddrinfo, (const char            *host_name,
                              const char            *serv_name,
                              const struct addrinfo *hints,
@@ -520,6 +528,7 @@ static struct LoadTable dyn_funcs [] = {
               ADD_VALUE (0, "ws2_32.dll", freeaddrinfo),
               ADD_VALUE (0, "ws2_32.dll", GetAddrInfoW),
               ADD_VALUE (0, "ws2_32.dll", FreeAddrInfoW),
+              ADD_VALUE (1, "ws2_32.dll", GetNameInfoW),
               ADD_VALUE (1, "ws2_32.dll", inet_pton),
               ADD_VALUE (1, "ws2_32.dll", inet_ntop),
               ADD_VALUE (1, "ws2_32.dll", InetPtonW),
@@ -1504,9 +1513,19 @@ int WINAPI connect (SOCKET s, const struct sockaddr *addr, int addr_len)
 
   rc = (*p_connect) (s, addr, addr_len);
 
-  WSTRACE ("connect (%s, %s, fam %s) --> %s",
-           socket_number(s), INET_addr_sockaddr(addr),
-           socket_family(sa->sin_family), get_error(rc, 0));
+  if (addr->sa_family == AF_UNIX)
+  {
+    WSTRACE ("connect (%s, \"%s\", fam %s) --> %s",
+             socket_number(s), INET_addr_sockaddr(addr),
+             socket_family(sa->sin_family), get_error(rc, 0));
+  }
+
+  else
+  {
+    WSTRACE ("connect (%s, %s, fam %s) --> %s",
+             socket_number(s), INET_addr_sockaddr(addr),
+             socket_family(sa->sin_family), get_error(rc, 0));
+  }
 
   if (!exclude_this)
   {
@@ -3327,25 +3346,48 @@ INT WINAPI GetAddrInfoW (const wchar_t *host_name, const wchar_t *serv_name,
   return (rc);
 }
 
-#define UNIMPLEMENTED() FATAL ("Call to unimplemented function %s().\n", __FUNCTION__)
-
-INT WINAPI GetNameInfoW (const SOCKADDR *sockaddr,
-                         socklen_t       sockaddr_len,
-                         PWCHAR          node_buf,
-                         DWORD           node_buf_size,
-                         PWCHAR          service_buf,
-                         DWORD           service_buf_size,
+INT WINAPI GetNameInfoW (const SOCKADDR *sa,
+                         socklen_t       sa_len,
+                         wchar_t        *host,
+                         DWORD           host_size,
+                         wchar_t        *serv_buf,
+                         DWORD           serv_buf_size,
                          INT             flags)
 {
-  UNIMPLEMENTED();
-  ARGSUSED (sockaddr);
-  ARGSUSED (sockaddr_len);
-  ARGSUSED (node_buf);
-  ARGSUSED (node_buf_size);
-  ARGSUSED (service_buf);
-  ARGSUSED (service_buf_size);
-  ARGSUSED (flags);
-  return (-1);
+  char ts_buf [40];
+  int  rc;
+
+  CHECK_PTR (p_GetNameInfoW);
+
+  ts_now = strcpy (ts_buf, get_timestamp());
+
+  rc = (*p_GetNameInfoW) (sa, sa_len, host, host_size, serv_buf, serv_buf_size, flags);
+
+  ENTER_CRIT();
+
+  WSTRACE ("GetNameInfoW (%s, ..., %s) --> %s",
+           INET_addr_sockaddr(sa), getnameinfo_flags_decode(flags), get_error(rc, 0));
+
+  if (!exclude_this)
+  {
+    if (rc == 0 && g_cfg.dump_nameinfo)
+       dump_nameinfow (host, serv_buf, flags);
+
+    if (g_cfg.GEOIP.enable)
+       dump_countries_sockaddr (sa);
+
+    if (g_cfg.IANA.enable)
+       dump_IANA_sockaddr (sa);
+
+    if (g_cfg.ASN.enable)
+       dump_ASN_sockaddr (sa);
+
+    if (g_cfg.DNSBL.enable)
+       dump_DNSBL_sockaddr (sa);
+  }
+
+  LEAVE_CRIT (!exclude_this);
+  return (rc);
 }
 
 INET_NTOP_RET WINAPI inet_ntop (INT af, INET_NTOP_ADDR src, PSTR dst, size_t size)
