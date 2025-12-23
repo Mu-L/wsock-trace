@@ -1,0 +1,1039 @@
+#
+# GNU Makefile for Wsock-trace (MSVC, clang-cl or Intel's ICX, 32 and 64-bit).
+#
+# By <gvanem@yahoo.no> 2018 - 2025.
+#
+DATE      := $(shell date +%d-%B-%Y)
+PYTHON    := py -3
+comma     := ,
+THIS_FILE := Makefile.Windows
+MAKEFLAGS += --warn-undefined-variables
+
+#
+# Roots and options. Change to suite.
+#
+MSVC_ROOT     := $(realpath $(VCToolkitInstallDir))
+VC_ROOT       := $(realpath $(VSINSTALLDIR))
+WX_ROOT       := $(realpath $(WXWIDGETS))
+CLANG32_ROOT  := $(realpath $(CLANG_32))
+CLANG64_ROOT  := $(realpath $(CLANG_64))
+
+LIBLOC_ROOT   := ./Geo-IP/IPFire/src
+LUAJIT_ROOT   := ./LuaJIT
+LWIP_ROOT     ?= f:/MinGW32/src/inet/lwip
+MONGOOSE_ROOT ?= f:/MinGW32/src/inet/Web/Mongoose
+PCAP_ROOT     ?= f:/MinGW32/src/inet/libpcap
+
+USE_ASAN       ?= 0
+USE_ASTYLE     ?= 1
+USE_PP_DEBUG   ?= 1
+USE_UBSAN      ?= 0
+USE_CRT_DEBUG  ?= 0
+USE_CRT_STATIC ?= 0
+USE_LUAJIT     ?= 0
+USE_LWIP       ?= 0
+USE_MONGOOSE   ?= 0
+USE_MP_COMPILE ?= 1
+
+define Usage
+
+  Usage: "$(MAKE) -f $(THIS_FILE) <CPU=x86|x64|arm|arm64> CC=[cl | clang-cl | icx] [all | clean | realclean | install]"
+  Specify CC=cl       - use MSVC
+  Specify CC=clang-cl - use clang-cl
+  Specify CC=icx      - use Intel's ICX
+endef
+
+ifeq ($(CC),icx)
+  #
+  # Force using 'x64' since that's the only Intel compiler I have
+  #
+  CPU = x64
+  _CC = $(call path_find, icx.exe)
+endif
+
+#
+# If '$(CPU)' was not specified on make's command-line, use whatever value
+# the '%CPU' is set to.
+#
+ifeq ($(CPU),x64)
+  IS_ARM = 0
+  BITS   = 64
+
+else ifeq ($(CPU),x86)
+  IS_ARM = 0
+  BITS   = 32
+
+else ifeq ($(CPU),arm)
+  IS_ARM = 1
+  BITS   = 32
+
+else ifeq ($(CPU),arm64)
+  IS_ARM = 1
+  BITS   = 64
+
+else
+  $(error Unsupported CPU=$(CPU))
+endif
+
+ifeq ($(USE_CRT_DEBUG),1)
+ _D = _d
+else
+ _D =
+endif
+
+#
+# What to build:
+#
+WSOCK_DLL = wsock_trace$(_D)-$(CPU).dll
+WSOCK_LIB = wsock_trace$(_D)-$(CPU).lib
+
+#
+# CFLAGS, LDFLAGS and RCFLAGS common for all source-files:
+#
+CFLAGS  = -nologo -W3 -D_CRT_SECURE_NO_WARNINGS -D_WINSOCK_DEPRECATED_NO_WARNINGS -Oy- # -GF
+LDFLAGS = -nologo -subsystem:console -verbose -incremental:no -debug -machine:$(CPU)   # -nxcompat:no
+RCFLAGS = -nologo -DBITNESS=$(BITS)
+
+CFLAGS += -D_WIN32_WINNT=0x0600 \
+          -DWIN32_LEAN_AND_MEAN \
+          -Z7 -Oi               \
+          -I.                   \
+          -I./mhook             \
+          -I$(LIBLOC_ROOT)      \
+          -DBUILD_DATE=\"$(DATE)\"
+
+CFLAGS += -DUSE_PythonHook=0
+
+export CL=
+
+c_to_obj = $(addprefix $(OBJ_DIR)/, \
+             $(notdir $(1:.c=.obj)))
+
+VCVARS_VER ?=
+
+ifeq ($(CC),clang-cl)
+  #
+  # clang-cl specifics:
+  #
+  ifeq ($(CPU),x64)
+    _CC = $(CLANG64_ROOT)/bin/clang-cl.exe
+  else
+    _CC = $(CLANG32_ROOT)/bin/clang-cl.exe
+  endif
+
+  CRT_DIR = $(MSVC_ROOT)/lib/$(CPU)
+
+  CFLAGS += -fms-compatibility           \
+            -ferror-limit=5              \
+            -Wno-pragma-pack             \
+            -Wno-missing-braces          \
+            -Wno-unused-function         \
+            -Wno-invalid-source-encoding \
+            -Wno-unused-command-line-argument
+
+else ifeq ($(CC),cl)
+  #
+  # MSVC specifics:
+  #
+  ifeq ($(VCVARS_VER),110)
+    #
+    # For Visual-Studio 2013 (32-bit only):
+    #
+    MSVC_ROOT = $(realpath $(VC_OLD_ROOT))
+    CRT_DIR   = $(MSVC_ROOT)/lib
+    _CC       = $(MSVC_ROOT)/bin/cl.exe
+    CFLAGS   += -Dinline=__inline
+  else
+    #
+    # For Visual-Studio 2017+:
+    # The first 'link.exe' found on PATH is assumed to work for all CPUs
+    #
+    _CC     = $(MSVC_ROOT)/bin/HostX64/$(CPU)/cl.exe
+    CRT_DIR = $(MSVC_ROOT)/lib/$(CPU)
+  endif
+
+else ifeq ($(CC),icx)
+  #
+  # Intel ICX specifics (it is LLVM based. So very similar to 'clang-cl'):
+  #
+  CRT_DIR = $(MSVC_ROOT)/lib/$(CPU)
+
+  CFLAGS += -fms-compatibility   \
+            -ferror-limit=5      \
+            -Wno-pragma-pack     \
+            -Wno-missing-braces  \
+            -Wno-unused-function \
+            -Wno-invalid-source-encoding
+
+else
+  $(error $(Usage))
+endif
+
+default: all
+
+#
+# Some checks for required tools
+#
+path_find  = $(word 1, $(wildcard $(addsuffix /$(strip $(1)),$(subst ;, ,$(subst \,/,$(PATH))))))
+file_exist = $(wildcard $(1))
+
+ifeq ($(call file_exist,$(_CC)),)
+  check_compiler:
+	$(error "$(_CC)" not found. Edit $(THIS_FILE) manually.)
+else
+  check_compiler:
+	$(call green_msg, Assuming $(_CC) is okay for $(BITS)-bit.)
+endif
+
+ifeq ($(CC)-$(USE_UBSAN),cl-1)
+  check_ubsan:
+	$(error 'USE_UBSAN' is not for 'cl')
+else
+  check_ubsan:
+	$(info Building with 'USE_UBSAN=1')
+endif
+
+WSOCK_SRC = asn.c             \
+            common.c          \
+            cpu.c             \
+            csv.c             \
+            dnsbl.c           \
+            dump.c            \
+            firewall.c        \
+            geoip.c           \
+            getopt.c          \
+            hosts.c           \
+            iana.c            \
+            idna.c            \
+            inet_addr.c       \
+            inet_util.c       \
+            init.c            \
+            ip2loc.c          \
+            miniz.c           \
+            overlap.c         \
+            services.c        \
+            smartlist.c       \
+            stkwalk.c         \
+            vm_dump.c         \
+            wsock_trace.c     \
+            wsock_trace_lua.c \
+            xz_decompress.c
+
+# WSOCK_SRC += mhook/disasm.c \
+#              mhook/mhook.c
+
+WS_TOOL_SRC = $(WSOCK_SRC) \
+              backtrace.c  \
+              test.c       \
+              vm_dump.c    \
+              ws_tool.c
+
+LIBLOC_SRC = $(addprefix $(LIBLOC_ROOT)/, \
+               address.c                  \
+               as.c                       \
+               as-list.c                  \
+               country.c                  \
+               country-list.c             \
+               database.c                 \
+               libloc.c                   \
+               network.c                  \
+               network-list.c             \
+               resolv.c                   \
+               stringpool.c               \
+               writer.c                   \
+               win_str.c                  \
+               win_mmap.c)
+
+WSOCK_OBJ   = $(call c_to_obj, $(WSOCK_SRC))
+WS_TOOL_OBJ = $(call c_to_obj, $(WS_TOOL_SRC))
+LIBLOC_OBJ  = $(call c_to_obj, $(LIBLOC_SRC))
+
+
+#
+# For '../misc-stuff/wx-stkwalk.cpp' and 'wx-stkwalk.exe' only:
+#
+wxCFLAGS = -EHsc                       \
+           -DUNICODE                   \
+           -D_UNICODE                  \
+           -DwxMONOLITHIC=1            \
+           -DWXWIN_COMPATIBILITY_3_2=1 \
+           -I$(WX_ROOT)/include        \
+           -I$(WX_ROOT)/include/msvc
+
+ifeq ($(CC),clang-cl)
+  wxCFLAGS += -Wno-c++98-compat \
+              -Wno-old-style-cast
+endif
+
+ifeq ($(CPU),x64)
+  WX_LIB_DIR = $(WX_ROOT)/lib/vc_x64_lib
+else
+  WX_LIB_DIR = $(WX_ROOT)/lib/vc_lib
+endif
+
+WX_EX_LIBS = advapi32.lib ole32.lib uuid.lib
+
+wxLDFLAGS = -libpath:$(WX_LIB_DIR)     \
+            -nodefaultlib:dnsapi.lib   \
+            -nodefaultlib:ws2_32.lib   \
+            -nodefaultlib:winmm.lib    \
+            -nodefaultlib:oleaut32.lib
+
+ifeq ($(USE_ASAN),1)
+  CFLAGS  += -DUSE_ASAN -fsanitize=address
+  RCFLAGS += -DUSE_ASAN
+
+  #
+  # The default for 'x86 / Release' is 'clang_rt.asan_dynamic_runtime_thunk-i386.lib'
+  # (and clang_rt.asan_dbg_dynamic_runtime_thunk-i386.lib for 'x86 / Debug')
+  #
+  LDFLAGS += -inferasanlibs
+endif
+
+ifeq ($(USE_UBSAN),1)
+  RCFLAGS += -DUSE_UBSAN
+  CFLAGS  += -DUSE_UBSAN -fsanitize=undefined
+endif
+
+ifeq ($(CC),clang-cl)
+  RCFLAGS += -D__clang__
+else
+  RCFLAGS += -D_MSC_VER
+endif
+
+ifeq ($(CPU),arm)
+  RCFLAGS += -D_ARM
+else ifeq ($(CPU),arm64)
+  RCFLAGS += -D_ARM64
+endif
+
+#
+# The path for the CRT library (msvcrt.lib):
+#
+LDFLAGS += -libpath:$(CRT_DIR)
+
+#
+# Ignore some .lib-files pulled in by default:
+# Except these are needed in 'wx-stkwalk.exe' only.
+#
+LDFLAGS += -nodefaultlib:oldnames.lib -nodefaultlib:uuid.lib
+
+ifeq ($(IS_ARM),1)
+  LDFLAGS += -nodefaultlib:runtimeobject.lib
+endif
+
+#
+# 'WindowsKits' root is in $(WindowsSdkDir) and
+# 'WindowsKits' version is in $(WindowsSdkVer).
+#
+# Hence the "User-Mode" Windows libraries for 'x86' are in:
+#   $(WindowsSdkDir)/Lib/$(WindowsSdkVer)/um/x86/
+#
+# Ditto for the Universal CRT libraries: for 'x86' the UCRT libs are in:
+#   $(WindowsSdkDir)/Lib/$(WindowsSdkVer)/ucrt/x86/
+#
+WK_DIR_1 = $(realpath $(WindowsSdkDir)/Lib/$(WindowsSdkVer)/um/$(CPU))
+WK_DIR_2 = $(realpath $(WindowsSdkDir)/Lib/$(WindowsSdkVer)/ucrt/$(CPU))
+
+#
+# Just for preprocessing some UCRT .cpp-files:
+#
+UCRT_SRC_ROOT  = $(realpath $(WindowsSdkDir))/Source/$(WindowsSdkVer)/ucrt
+VCRUNTIME_ROOT = $(MSVC_ROOT)/crt/src/vcruntime
+
+LDFLAGS += -libpath:$(WK_DIR_1) -libpath:$(WK_DIR_2)
+
+ifeq ($(USE_CRT_STATIC),1)
+  MD = -MT
+else
+  MD = -MD
+endif
+
+ifeq ($(USE_CRT_DEBUG),1)
+  CFLAGS  += $(MD)d -Ob0 -RTCs -RTCu -GS -Gs
+  RCFLAGS += -DDEBUG
+else
+  CFLAGS += $(MD) -Ot -GS-
+endif
+
+OBJ_DIR = objects
+
+EX_LIBS += ole32.lib advapi32.lib
+
+TARGETS = $(WSOCK_DLL) $(WSOCK_LIB)
+
+ifeq ($(USE_LUAJIT),1)
+  CFLAGS += -DUSE_LUAJIT -I$(LUAJIT_ROOT)/src
+
+  #
+  # Fake these for LuaJIT
+  #
+  ifeq ($(CPU),arm)
+    CFLAGS += -D__ARM__ -D__ARM_EABI__
+  else ifeq ($(CPU),arm64)
+    CFLAGS += -D__aarch64__
+  endif
+
+  LUAJIT_LIB = $(LUAJIT_ROOT)/lib/luajit_static-$(CPU).lib
+else
+  LUAJIT_LIB =
+endif
+
+ifeq ($(USE_LWIP),1)
+  ifeq ($(USE_CRT_STATIC),1)
+    $(error 'USE_CRT_STATIC = 1' and 'USE_LWIP = 1' is incompatible.)
+  endif
+
+  CFLAGS += -DUSE_LWIP                 \
+            -DNO_SYS=1                 \
+            -I$(LWIP_ROOT)             \
+            -I$(LWIP_ROOT)/src/include \
+            -I$(LWIP_ROOT)/src/include/Win32-hdr \
+          # -I$(LWIP_ROOT)/src/contrib
+
+  WSOCK_SRC += wsock_trace_lwip.c
+
+  EX_LIBS += $(LWIP_ROOT)/lib/lwip-$(CPU).lib \
+             $(PCAP_ROOT)/lib/wpcap_static-$(CPU).lib
+
+else ifeq ($(USE_MONGOOSE),1)
+  #
+  # Todo: Use the builtin TCP/IP stack in Mongoose as
+  #       a second switchable stack.
+  #
+  CFLAGS += -DUSE_MIP \
+            -I$(MONGOOSE_ROOT)
+  WSOCK_SRC += wsock_trace_mongoose.c
+
+  EX_LIBS += $(PCAP_ROOT)/lib/wpcap_static-$(CPU).lib
+endif
+
+LIBLOC_LIB = libloc$(_D)-$(CPU).lib
+EX_LIBS   += dnsapi.lib
+
+PROGRAMS = vg-test.exe ws_tool.exe # mhook-test.exe get-volumes.exe wx-stkwalk.exe
+
+all: check_compiler check_ubsan touch_common_c $(LUAJIT_LIB) $(TARGETS) $(PROGRAMS) epilogue
+
+epilogue:
+	$(call green_msg, Welcome to wsock_trace $(BRIGHT_WHITE)(CC=$(CC), $(BITS)-bits), USE_CRT_DEBUG=$(USE_CRT_DEBUG).)
+	$(call green_msg, Do a $(BRIGHT_WHITE)make CC=$(CC) -f $(THIS_FILE) install$(BRIGHT_GREEN) at own risk.)
+
+$(OBJ_DIR):
+	- mkdir $@ 2> /dev/null
+
+install: all
+	- $(call copy_file, $(WSOCK_LIB),                 $(VC_ROOT)/lib)
+	- $(call copy_file, $(WSOCK_DLL:.dll=.{dll,pdb}), $(VC_ROOT)/bin)
+	  $(call copy_file, ws_tool.{exe$(comma)pdb},     $(VC_ROOT)/bin)
+
+#
+# Ensure this startup message is correct:
+#   init.c(1121): Parsing config-file "c:/Users/Gisle/AppData/Roaming/wsock_trace"
+#                for "clang-cl (32-bit, release), Jan 14 2022".
+#                     ^^^
+#
+# by recompiling 'common.c'. I.e. the 'get_builder()' function.
+#
+GET_BUILD_DATE = $(shell cat ./$(OBJ_DIR)/build_date)
+
+touch_common_c: | $(OBJ_DIR)
+ifeq ($(GET_BUILD_DATE),)
+	touch common.c
+	@echo '$(DATE)' > ./$(OBJ_DIR)/build_date
+else
+	$(call green_msg, Date on $(BRIGHT_WHITE)common.c $(BRIGHT_GREEN)is up-to-date.)
+endif
+
+extras: mhook-test.exe  \
+        get-volumes.exe \
+        csv_test        \
+        wx-stkwalk.exe  \
+        wsa-enum-namespace-providers.exe
+
+#
+# Test of 'mhook/*.c' code:
+#
+mhook: mhook-test.exe
+
+mhook-test.exe: $(OBJ_DIR)/mhook-test.obj $(OBJ_DIR)/disasm.obj wsock_trace-$(CPU).lib
+	$(call link_EXE, $@, $^ gdi32.lib kernel32.lib user32.lib)
+
+#
+# Test of 'wsa-enum-namespace-providers.c' code:
+#
+wsa-enum: wsa-enum-namespace-providers.exe
+
+wsa-enum-namespace-providers.exe: $(OBJ_DIR)/wsa-enum-namespace-providers.obj
+	$(call link_EXE, $@, $^ ole32.lib ws2_32.lib)
+
+#
+# Test for finding harddisk volumes
+#
+get-volumes.exe: $(OBJ_DIR)/get-volumes.obj
+	$(call link_EXE, $@, $^)
+
+#
+# Test for generated CSV .h-files:
+#
+csv_test: ip4-asn-test.exe
+	./$< -dv
+	@echo
+
+ip4-asn-test.exe: $(OBJ_DIR)/csv-test-driver.obj
+	$(call link_EXE, $@, $<)
+
+$(OBJ_DIR)/csv-test-driver.obj: $(OBJ_DIR)/csv-test-driver.c $(OBJ_DIR)/ip4-asn-test.h | $(CC).args
+	$(call C_compile, $@, $<)
+
+$(OBJ_DIR)/ip4-asn-test.h: ws_tool.exe $(THIS_FILE)
+	export WSOCK_TRACE_LEVEL=0 ; \
+	./$< csv -g $@ ../ipv6-unicast-address-assignments.csv
+	@echo
+
+$(OBJ_DIR)/csv-test-driver.c: $(THIS_FILE) | $(OBJ_DIR)
+	$(call generate_c, $@)
+	$(file >> $@, #define CSV_TEST)
+	$(file >> $@, #include "csv.c")
+	$(file >> $@, #include "getopt.c")
+	$(file >> $@, #include "smartlist.c")
+	$(file >> $@, #include "$(OBJ_DIR)/ip4-asn-test.h")
+
+#
+# Make a .def file for x64/arm/arm64; remove the leading '_' and the '@x' suffixes.
+#
+$(OBJ_DIR)/wsock_trace$(_D)-x64.def: wsock_trace-x86.def $(THIS_FILE) | $(OBJ_DIR)
+	$(call generate, $@, ;)
+	sed -e "s/LIBRARY wsock_trace-x86.dll/LIBRARY $(WSOCK_DLL)/" \
+	    -e "s/^ _\(.*\)@.*/ \1/g" < $< >> $@
+	@echo
+
+$(OBJ_DIR)/wsock_trace$(_D)-arm.def $(OBJ_DIR)/wsock_trace$(_D)-arm64.def: wsock_trace-x86.def $(THIS_FILE)
+	$(call generate, $@, ;)
+	sed -e "s/LIBRARY wsock_trace-x86.dll/LIBRARY $(WSOCK_DLL)/" \
+	    -e "s/^ _\(.*\)@.*/ \1/g" < $< >> $@
+	@echo
+
+$(OBJ_DIR)/wsock_trace$(_D)-x86.def: wsock_trace-x86.def | $(OBJ_DIR)
+	$(call green_msg, Copying $(BRIGHT_WHITE)$< $(BRIGHT_GREEN)to $(BRIGHT_WHITE)$@)
+	cp --update $< $@
+	@echo
+
+#
+# For 'x86 / _DEBUG' mode:
+#
+$(OBJ_DIR)/wsock_trace_d-x86.def: wsock_trace-x86.def $(THIS_FILE) | $(OBJ_DIR)
+	$(call generate, $@, ;)
+	sed -e "s/LIBRARY wsock_trace-x86.dll/LIBRARY $(WSOCK_DLL)/" < $< >> $@
+	@echo
+
+$(WSOCK_LIB): $(WSOCK_DLL)
+$(WSOCK_DLL): EX_LIBS += winmm.lib
+ws_tool.exe:  EX_LIBS += winmm.lib
+
+#
+# The '$(WSOCK_LIB)' is an import-lib for '$(WSOCK_DLL)'.
+# Since the SDK header <ws2ipdef.h> declares some data with no export
+# declaration ('in6addr_any' etc.), the 'non-export.obj' is simply added to the
+# '$(WSOCK_LIB)' after linking is done.
+#
+$(WSOCK_DLL):                       \
+  $(OBJ_DIR)/$(WSOCK_DLL:.dll=.def) \
+  $(WSOCK_OBJ)                      \
+  $(OBJ_DIR)/non-export.obj         \
+  $(OBJ_DIR)/wsock_trace.res        \
+  $(LUAJIT_LIB)                     \
+  $(LIBLOC_LIB)
+	$(call link_DLL, $@, -def:$< $(WSOCK_OBJ) $(OBJ_DIR)/wsock_trace.res $(LUAJIT_LIB) $(LIBLOC_LIB) $(EX_LIBS), \
+	                 $(WSOCK_LIB))
+	lib -nologo $(WSOCK_LIB) $(OBJ_DIR)/non-export.obj
+
+#
+# Experiment:
+#   Building $(WSOCK_DLL) with '-Ox' (maximum optimisation) breaks in 'RtlCaptureStackBackTrace()'.
+#   Check if it breaks an application too.
+#
+ifeq ($(CC)-$(USE_CRT_DEBUG),cl-0)
+  $(OBJ_DIR)/test.obj: CFLAGS += -Ox
+endif
+
+vg-test.exe: $(OBJ_DIR)/vg-test.obj $(WSOCK_LIB)
+	$(call link_EXE, $@, $^)
+
+#
+# The 'winmm.lib' library could be needed for the 'sndPlaySound()' function.
+#
+ws_tool.exe: $(WS_TOOL_OBJ) $(OBJ_DIR)/ws_tool.res $(LIBLOC_LIB) $(LUAJIT_LIB)
+	$(call link_EXE, $@, $^ $(EX_LIBS))
+
+#
+# Needs the dynamic (-MD) compiled version of the 'wxWidget' libraries.
+#
+ifeq ($(USE_CRT_STATIC),1)
+  wx-stkwalk.exe::
+	$(call green_msg, $@ needs $(BRIGHT_WHITE)USE_CRT_STATIC=0)
+else
+  wx-stkwalk.exe: $(OBJ_DIR)/wx-stkwalk.obj
+	$(call link_EXE, $@, $^ $(wxLDFLAGS) $(WX_EX_LIBS))
+endif
+
+$(OBJ_DIR)/wx-stkwalk.obj: ../misc-stuff/wx-stkwalk.cpp | $(CC).args $(OBJ_DIR)
+	$(call CPP_compile, $@, $<)
+
+LIBLOC_CFLAGS = -I$(LIBLOC_ROOT)/fake-OpenSSL   \
+                -I$(LIBLOC_ROOT)/libloc/windows \
+                -DENABLE_DEBUG                  \
+                -DUSE_WSOCK_TRACE               \
+                -FI$(LIBLOC_ROOT)/fake-OpenSSL/openssl/applink.c
+
+MHOOK_CFLAGS = -DUSE_TRACE # -DDEBUG_DISASM -DUSE_DBG_TRACE -DUNICODE -D_UNICODE
+
+ifeq ($(CC),clang-cl)
+  LIBLOC_CFLAGS += -Wno-macro-redefined  \
+                   -Wno-shorten-64-to-32 \
+                   -Wno-unused-variable  \
+                   -Wno-conditional-uninitialized
+
+  MHOOK_CFLAGS += -Wno-microsoft-anon-tag \
+                  -Wno-enum-compare       \
+                  -Wno-switch
+else
+  LIBLOC_CFLAGS += -wd4018 -wd4100 -wd4101 -wd4115 -wd4146 \
+                   -wd4152 -wd4189 -wd4201 -wd4244 -wd4267 -wd4702
+endif
+
+$(OBJ_DIR)/mhook-test.obj: mhook/mhook.c | $(CC).args $(OBJ_DIR)
+	$(call C_compile, $@, -DMHOOK_TEST $(MHOOK_CFLAGS) $<)
+
+$(OBJ_DIR)/%.obj: mhook/%.c | $(CC).args $(OBJ_DIR)
+	$(call C_compile, $@, $(MHOOK_CFLAGS) $<)
+
+ifeq ($(CC)-$(USE_MP_COMPILE),cl-1)
+  $(WSOCK_OBJ): $(WSOCK_SRC) | $(CC).args $(OBJ_DIR)
+	$(call C_compile_MP, $(OBJ_DIR)\\, $(WSOCK_SRC), WSOCK_SRC)
+
+  $(LIBLOC_OBJ): $(LIBLOC_SRC) | $(CC).args $(OBJ_DIR)
+	$(call C_compile_MP, $(OBJ_DIR)\\, $(LIBLOC_CFLAGS) $(LIBLOC_SRC), LIBLOC_SRC)
+
+else
+  $(OBJ_DIR)/%.obj: $(LIBLOC_ROOT)/%.c | $(CC).args $(OBJ_DIR)
+	$(call C_compile, $@, $(LIBLOC_CFLAGS) $<)
+endif
+
+$(OBJ_DIR)/%.obj: %.c | $(CC).args $(OBJ_DIR)
+	$(call C_compile, $@, $<)
+
+$(OBJ_DIR)/%.res: %.rc | $(OBJ_DIR)
+	$(call create_res_file, $@, $<)
+
+$(CC).args: $(THIS_FILE)
+	$(call green_msg, All CFLAGS are in $(BRIGHT_WHITE)$@)
+	$(call create_resp_file, $@, -c $(CFLAGS))
+
+$(LIBLOC_LIB): $(LIBLOC_OBJ)
+	$(call create_static_lib, $@, $^)
+
+$(LUAJIT_LIB): FORCE
+ifeq ($(CC),icx)
+	$(error LuaJit with 'CC=icx' is not supported)
+else
+	$(call build_luajit, static)
+endif
+
+clean:
+	rm -fr $(OBJ_DIR) .vs
+	rm -f link.args cl.args clang-cl.args link.tmp vc1*.pdb
+	rm -f wsock_trace*.pdb $(PROGRAMS:.exe=.pdb) $(LIBLOC_LIB) $(LUAJIT_LIB) wx-stkwalk.exe.manifest
+	rm -f ip4-asn-test.* ../ipv6-unicast-address-assignments.csv.BIN
+ifneq ($(CC),icx)
+	$(call build_luajit, clean)
+endif
+
+realclean vclean: clean
+	rm -f $(TARGETS) $(PROGRAMS) wx-stkwalk.{exe,pdb} mhook-test.{exe,pdb}
+
+%.i: $(LIBLOC_ROOT)/%.c $(OBJ_DIR)/cpp-filter.py $(CC).args FORCE
+	$(call C_preprocess, $@, $(LIBLOC_CFLAGS) $<)
+
+csv-test-driver.i: $(OBJ_DIR)/csv-test-driver.c $(OBJ_DIR)/ip4-asn-test.h $(OBJ_DIR)/cpp-filter.py $(CC).args FORCE
+	$(call C_preprocess, $@, $<)
+
+%.i: mhook/%.c $(OBJ_DIR)/cpp-filter.py $(CC).args FORCE
+	$(call C_preprocess, $@, $(MHOOK_CFLAGS) $<)
+
+%.i: %.c $(CC).args $(OBJ_DIR)/cpp-filter.py FORCE
+	$(call C_preprocess, $@, $<)
+
+%.i: $(UCRT_SRC_ROOT)/*/%.cpp $(CC).args $(OBJ_DIR)/cpp-filter.py FORCE
+	$(call C_preprocess, $@, -I$(UCRT_SRC_ROOT)/inc -I$(VCRUNTIME_ROOT) $<)
+
+$(OBJ_DIR)/cpp-filter.py: $(THIS_FILE) | $(OBJ_DIR)
+	$(call generate_py,$@,$(cpp_filter_PY))
+
+FORCE:
+
+#
+# GNU-make macros.
+#
+# The following assumes you have MSys/Cygwin's echo with colour support.
+#
+BRIGHT_GREEN = \e[1;32m
+BRIGHT_WHITE = \e[1;37m
+
+colour_msg = @echo -e "$(1)\e[0m"
+green_msg  = $(call colour_msg,$(BRIGHT_GREEN)$(strip $(1)))
+
+define generate
+  $(call green_msg, Generating $(BRIGHT_WHITE)$(strip $(1)))
+  $(file > $(1),$(call Warning,$(2)))
+endef
+
+define generate_c
+  $(call generate, $(1),//)
+endef
+
+define generate_py
+  $(call generate, $(1),#)
+  $(file >> $(1),if 1:)
+  $(file >> $(1),$(2))
+endef
+
+define Warning
+  $(1)
+  $(1) DO NOT EDIT! This file was generated automatically
+  $(1) from $(realpath $<). Edit that file instead.
+  $(1)
+endef
+
+define C_compile
+  $(_CC) -Fo./$(strip $(1) @$(CC).args $(2))
+  @echo
+endef
+
+define C_compile_MP
+  $(call green_msg, Compiling $(words $(filter %.c, $(2))) files for $(BRIGHT_WHITE)$(strip $(3)))
+  $(call C_compile, $(1), -MP $(2))
+endef
+
+define CPP_compile
+  $(_CC) -Fo./$(strip $(1) @$(CC).args $(wxCFLAGS) $(2))
+  @echo
+endef
+
+CPP_CMD = $(_CC) -E
+
+ifeq ($(USE_PP_DEBUG),1)
+  #
+  # '-d1PP': Retain macro definitions in /E mode
+  #
+  ifeq ($(CC),clang-cl)
+    CPP_CMD += -d1PP
+  endif
+  #
+  # '-PD': print all macro definitions
+  #
+  ifeq ($(CC),cl)
+    CPP_CMD += -PD -Zc:preprocessor
+  endif
+endif
+
+ifeq ($(USE_ASTYLE),1)
+  pp_filter  = | astyle
+  pp_comment = The preprocessed and AStyled output of '$(strip $(1))':
+else
+  pp_filter =
+  pp_comment = The raw preprocessed output of '$(strip $(1))':
+endif
+
+#
+# Macro to generate a nicer C preprocessed output
+# with the help of '$(OBJ_DIR)/cpp-filter.py' and optionally 'Astyle'.
+#
+define C_preprocess
+  $(file  > $(1),/* $(call pp_comment, $(2)))
+  $(file >> $(1), * $(CC) -E)
+  @$(foreach f, $(CFLAGS), $(file >> $(1), * $(f)))
+  $(file >> $(1), */)
+  $(CPP_CMD) @$(CC).args $(2) | $(PYTHON) $(OBJ_DIR)/cpp-filter.py $(pp_filter) >> $(1)
+  @echo
+endef
+
+define link_EXE
+  $(call green_msg, Linking $(BRIGHT_WHITE)$(strip $(1)))
+  $(file  > $(OBJ_DIR)/check-for-unused-libs.py,if 1:)
+  $(file >> $(OBJ_DIR)/check-for-unused-libs.py,$(check_for_unused_libraries_PY))
+  $(call create_resp_file, link.args, $(LDFLAGS) $(2))
+  link -out:$(strip $(1)) @link.args > link.tmp
+  @rm -f $(1:.exe=.exp) $(1:.exe=.lib)
+  @$(PYTHON) $(OBJ_DIR)/check-for-unused-libs.py link.tmp
+endef
+
+define link_DLL
+  $(call green_msg, Linking $(BRIGHT_WHITE)$(strip $(1)))
+  $(file  > $(OBJ_DIR)/check-for-unused-libs.py,if 1:)
+  $(file >> $(OBJ_DIR)/check-for-unused-libs.py,$(check_for_unused_libraries_PY))
+  $(call create_resp_file, link.args, -dll $(LDFLAGS) -implib:$(strip $(3)) $(2))
+  link -out:$(strip $(1)) @link.args > link.tmp
+  @rm -f $(3:.lib=.exp)
+  @$(PYTHON) $(OBJ_DIR)/check-for-unused-libs.py link.tmp
+endef
+
+define create_res_file
+  rc $(RCFLAGS) -fo $(1) $(2)
+  @echo
+endef
+
+define create_static_lib
+  $(call green_msg, Creating static library $(BRIGHT_WHITE)$(strip $(1)))
+  lib -nologo -out:$(strip $(1)) -machine:$(CPU) $(2)
+  @echo
+endef
+
+define copy_file
+  cp --update $(strip $(1) $(2))
+  @echo
+endef
+
+define create_resp_file
+  $(file > $(1))
+  $(foreach f, $(2), $(file >> $(1),$(strip $(f))) )
+endef
+
+#
+# Enter '$(LUAJIT_ROOT)' to create '$(LUAJIT_LIB)'
+# Or do 'make clean' on it.
+#
+define build_luajit
+  $(call green_msg, Building target $(BRIGHT_WHITE)$(strip $(1)) $(BRIGHT_GREEN)for LuaJIT ...)
+  $(MAKE) -C $(LUAJIT_ROOT) -f $(THIS_FILE) CC=$(CC) CPU=$(CPU) $(1)
+  @echo
+endef
+
+define cpp_filter_PY
+  import sys, os
+
+  empty_lines = 0
+  while True:
+    line = sys.stdin.readline()
+    if not line:
+       break
+    line = line.rstrip()
+    if line == "":
+       empty_lines += 1
+       continue
+
+    #
+    # MSVC or clang-cl 'line' directive
+    #
+    if line.startswith("#line") or line.startswith("# "):
+       line = line.replace (r"\\", "/")
+
+    print (line)
+
+    #
+    # Print a newline after a functions or structs
+    #
+    if line == "}" or line == "};":
+       print ("")
+
+  print ("Removed %d empty lines." % empty_lines, file=sys.stderr)
+endef
+
+define check_for_unused_libraries_PY
+  #
+  # Check for unused libraries in a MSVC link .map file.
+  # Prints with colours using 'colorama' (if available).
+  #
+  import os, sys
+
+  map_file    = sys.argv[1]
+  ignore_libs = [ ]
+
+  class State:
+    IDLE   = 0
+    UNUSED = 1
+
+  class Colour:
+    RED = WHITE = RESET = ""
+
+  try:
+    import colorama
+    colorama.init()
+    Colour.RED   = colorama.Fore.RED   + colorama.Style.BRIGHT
+    Colour.WHITE = colorama.Fore.WHITE + colorama.Style.BRIGHT
+    Colour.RESET = colorama.Style.RESET_ALL
+  except:
+    pass
+
+  def cprint (color, s):
+    print ("%s%s%s" % (color, s, Colour.RESET))
+
+  def report (unused):
+    num = len(unused)
+    if num > 0:
+       cprint (Colour.RED, "%d unused librar%s in %s:" % (num, ["y", "ies"][num > 1], map_file))
+       for u in unused:
+           print ("  " + u)
+    cprint (Colour.WHITE, "Done.\n")
+
+  def process_map (state):
+    unused_libs = []
+    f = open (map_file, "rt")
+    lines = f.readlines()
+    f.close()
+    for l in lines:
+      l = l.strip()
+      if l == "Unused libraries:":
+         state = State.UNUSED
+         continue
+      if state == State.UNUSED:
+         if l == "":
+            break
+         if os.path.basename (l).lower() not in ignore_libs:
+            unused_libs.append (l)
+    return unused_libs
+
+  report (process_map(State.IDLE))
+endef
+
+#
+# The dependency section:
+#
+$(OBJ_DIR)/asn.obj: asn.c common.h wsock_defs.h csv.h     \
+                    smartlist.h inet_util.h inet_addr.h  \
+                    init.h iana.h asn.h                  \
+                    $(LIBLOC_ROOT)/libloc/libloc.h       \
+                    $(LIBLOC_ROOT)/libloc/compat.h       \
+                    $(LIBLOC_ROOT)/libloc/database.h     \
+                    $(LIBLOC_ROOT)/libloc/network.h      \
+                    $(LIBLOC_ROOT)/libloc/format.h       \
+                    $(LIBLOC_ROOT)/libloc/network-list.h \
+                    $(LIBLOC_ROOT)/libloc/as.h           \
+                    $(LIBLOC_ROOT)/libloc/stringpool.h   \
+                    $(LIBLOC_ROOT)/libloc/country.h      \
+                    $(LIBLOC_ROOT)/libloc/country-list.h \
+                    $(LIBLOC_ROOT)/libloc/resolv.h       \
+                    $(LIBLOC_ROOT)/libloc/windows/syslog.h
+
+$(OBJ_DIR)/ws_tool.obj: asn.c backtrace.c csv.c geoip.c iana.c firewall.c dnsbl.c idna.c test.c
+
+$(OBJ_DIR)/common.obj: common.c common.h wsock_defs.h smartlist.h init.h dump.h wsock_trace.rc
+
+$(OBJ_DIR)/cpu.obj: cpu.c common.h wsock_defs.h init.h cpu.h
+
+$(OBJ_DIR)/dnsbl.obj: dnsbl.c common.h wsock_defs.h init.h inet_addr.h smartlist.h geoip.h inet_util.h dnsbl.h
+
+$(OBJ_DIR)/dump.obj: dump.c common.h wsock_defs.h inet_addr.h init.h geoip.h smartlist.h idna.h hosts.h wsock_trace.h inet_addr.h inet_util.h dnsbl.h dump.h
+
+$(OBJ_DIR)/hosts.obj: hosts.c common.h wsock_defs.h init.h smartlist.h inet_addr.h hosts.h
+
+$(OBJ_DIR)/geoip.obj: geoip.c common.h wsock_defs.h smartlist.h init.h inet_addr.h inet_util.h geoip.h
+
+$(OBJ_DIR)/idna.obj: idna.c common.h wsock_defs.h init.h smartlist.h idna.h
+
+$(OBJ_DIR)/inet_util.obj: inet_util.c common.h wsock_defs.h init.h inet_addr.h inet_util.h
+
+$(OBJ_DIR)/init.obj: init.c common.h wsock_defs.h wsock_trace.h dump.h geoip.h smartlist.h init.h idna.h stkwalk.h overlap.h hosts.h firewall.h cpu.h dnsbl.h
+
+$(OBJ_DIR)/inet_addr.obj: inet_addr.c common.h wsock_defs.h inet_addr.h
+
+$(OBJ_DIR)/ip2loc.obj: ip2loc.c common.h wsock_defs.h init.h inet_addr.h inet_util.h geoip.h smartlist.h
+
+$(OBJ_DIR)/overlap.obj: overlap.c common.h wsock_defs.h init.h smartlist.h overlap.h
+
+$(OBJ_DIR)/smartlist.obj: smartlist.c common.h wsock_defs.h vm_dump.h smartlist.h
+
+$(OBJ_DIR)/stkwalk.obj: stkwalk.c common.h wsock_defs.h init.h stkwalk.h smartlist.h
+
+$(OBJ_DIR)/vm_dump.obj: vm_dump.c common.h wsock_defs.h cpu.h vm_dump.h
+
+$(OBJ_DIR)/wsock_trace.obj: wsock_trace.c common.h wsock_defs.h inet_addr.h init.h cpu.h stkwalk.h smartlist.h \
+                            overlap.h dump.h wsock_trace_lua.h wsock_trace.h wsock_hooks.c
+
+$(OBJ_DIR)/disasm.obj: mhook/disasm.c mhook/disasm.h
+
+$(OBJ_DIR)/mhook.obj: mhook/mhook.c mhook/disasm.h mhook/mhook.h
+
+$(OBJ_DIR)/mhook-test.obj: mhook/mhook.c mhook/mhook.h
+
+ifeq ($(USE_LUAJIT),1)
+L  = $(LUAJIT_ROOT)/src/
+LO = $(LUAJIT_ROOT)/src/static/
+
+# $(LUAJIT_LIB): $(LO)ljamalg.obj
+
+$(OBJ_DIR)/wsock_trace.obj: $(L)/lua.h     \
+                            $(L)/luaconf.h \
+                            $(L)/lualib.h  \
+                            $(L)/lua.h     \
+                            $(L)/lauxlib.h
+
+$(OBJ_DIR)/wsock_trace_lua.obj: wsock_trace_lua.c \
+                                common.h          \
+                                wsock_defs.h      \
+                                init.h            \
+                                wsock_trace_lua.h \
+                                $(L)/lua.h        \
+                                $(L)/luaconf.h    \
+                                $(L)/lualib.h     \
+                                $(L)/lua.h        \
+                                $(L)/lauxlib.h    \
+                                $(L)/lj_arch.h    \
+                                $(L)/lj_debug.h
+
+$(LO)ljamalg.obj: $(L)/ljamalg.c $(L)lua.h $(L)luaconf.h $(L)lauxlib.h \
+ $(L)lj_gc.c $(L)lj_obj.h $(L)lj_def.h $(L)lj_arch.h $(L)lj_gc.h \
+ $(L)lj_err.h $(L)lj_errmsg.h $(L)lj_str.h $(L)lj_tab.h $(L)lj_func.h \
+ $(L)lj_udata.h $(L)lj_meta.h $(L)lj_state.h $(L)lj_frame.h $(L)lj_bc.h \
+ $(L)lj_ctype.h $(L)lj_cdata.h $(L)lj_trace.h $(L)lj_jit.h $(L)lj_ir.h \
+ $(L)lj_dispatch.h $(L)lj_traceerr.h $(L)lj_vm.h $(L)lj_err.c \
+ $(L)lj_debug.h $(L)lj_win.h $(L)lj_ff.h objects/lj_ffdef.h $(L)lj_char.c \
+ $(L)lj_char.h $(L)lj_bc.c objects/lj_bcdef.h $(L)lj_obj.c $(L)lj_str.c \
+ $(L)lj_tab.c $(L)lj_func.c $(L)lj_udata.c $(L)lj_meta.c $(L)lj_strscan.h \
+ $(L)lj_debug.c $(L)lj_state.c $(L)lj_lex.h $(L)lj_alloc.h \
+ $(L)lj_dispatch.c $(L)lj_ccallback.h $(L)luajit.h $(L)lj_vmevent.c \
+ $(L)lj_vmevent.h $(L)lj_vmmath.c $(L)lj_strscan.c $(L)lj_api.c \
+ $(L)lj_lex.c $(L)lualib.h $(L)lj_parse.h $(L)lj_parse.c $(L)lj_bcread.c \
+ $(L)lj_bcdump.h $(L)lj_bcwrite.c $(L)lj_load.c $(L)lj_ctype.c \
+ $(L)lj_cdata.c $(L)lj_cconv.h $(L)lj_cconv.c $(L)lj_ccall.c \
+ $(L)lj_ccall.h $(L)lj_ccallback.c $(L)lj_target.h $(L)lj_target_x86.h \
+ $(L)lj_mcode.h $(L)lj_carith.c $(L)lj_carith.h $(L)lj_clib.c \
+ $(L)lj_clib.h $(L)lj_cparse.c $(L)lj_cparse.h $(L)lj_lib.c $(L)lj_lib.h \
+ $(L)lj_ir.c $(L)lj_ircall.h $(L)lj_iropt.h $(L)lj_opt_mem.c \
+ $(L)lj_opt_fold.c objects/lj_folddef.h $(L)lj_opt_narrow.c \
+ $(L)lj_opt_dce.c $(L)lj_opt_loop.c $(L)lj_snap.h $(L)lj_opt_split.c \
+ $(L)lj_opt_sink.c $(L)lj_mcode.c $(L)lj_snap.c $(L)lj_record.c \
+ $(L)lj_record.h $(L)lj_ffrecord.h $(L)lj_crecord.c $(L)lj_crecord.h \
+ $(L)lj_ffrecord.c objects/lj_recdef.h $(L)lj_asm.c $(L)lj_asm.h \
+ $(L)lj_emit_x86.h $(L)lj_asm_x86.h $(L)lj_trace.c $(L)lj_gdbjit.h \
+ $(L)lj_gdbjit.c $(L)lj_alloc.c $(L)lib_aux.c $(L)lib_base.c \
+ $(L)objects/lj_libdef.h $(L)lib_math.c $(L)lib_string.c $(L)lib_table.c \
+ $(L)lib_io.c $(L)lib_os.c $(L)lib_package.c $(L)lib_debug.c \
+ $(L)lib_bit.c $(L)lib_jit.c $(L)lib_ffi.c $(L)lib_init.c $(L)lj_win.c
+
+$(LO)luajit.obj: $(L)luajit.c $(L)lua.h $(L)luaconf.h $(L)lauxlib.h $(L)lualib.h $(L)luajit.h $(L)lj_arch.h
+
+$(LO)host/buildvm.obj: $(L)host/buildvm.c $(L)host/buildvm.h $(L)lj_def.h $(L)lua.h $(L)luaconf.h \
+ $(L)lj_arch.h $(L)lj_obj.h $(L)lj_def.h $(L)lj_arch.h $(L)lj_gc.h $(L)lj_obj.h $(L)lj_bc.h $(L)lj_ir.h \
+ $(L)lj_ircall.h $(L)lj_ir.h $(L)lj_jit.h $(L)lj_frame.h $(L)lj_bc.h $(L)lj_dispatch.h $(L)lj_ctype.h \
+ $(L)lj_gc.h $(L)lj_ccall.h $(L)lj_ctype.h $(L)luajit.h \
+ $(L)host/buildvm_arch.h $(L)lj_traceerr.h
+
+$(LO)host/buildvm_asm.obj: $(L)host/buildvm_asm.c $(L)host/buildvm.h $(L)lj_def.h $(L)lua.h \
+  $(L)luaconf.h $(L)lj_arch.h $(L)lj_bc.h $(L)lj_def.h $(L)lj_arch.h
+
+$(LO)host/buildvm_fold.obj: $(L)host/buildvm_fold.c $(L)host/buildvm.h $(L)lj_def.h $(L)lua.h \
+  $(L)luaconf.h $(L)lj_arch.h $(L)lj_obj.h $(L)lj_def.h $(L)lj_arch.h $(L)lj_ir.h $(L)lj_obj.h
+
+$(LO)host/buildvm_lib.obj: $(L)host/buildvm_lib.c $(L)host/buildvm.h $(L)lj_def.h $(L)lua.h $(L)luaconf.h \
+ $(L)lj_arch.h $(L)lj_obj.h $(L)lj_def.h $(L)lj_arch.h $(L)lj_bc.h $(L)lj_lib.h $(L)lj_obj.h \
+ $(L)host/buildvm_libbc.h
+
+$(LO)host/buildvm_peobj.obj: $(L)host/buildvm_peobj.c $(L)host/buildvm.h $(L)lj_def.h $(L)lua.h \
+  $(L)luaconf.h $(L)lj_arch.h $(L)lj_bc.h $(L)lj_def.h $(L)lj_arch.h
+
+$(LO)host/minilua.obj: $(L)host/minilua.c
+
+endif  # USE_LUAJIT=1
+
+
