@@ -6,9 +6,11 @@
 @rem options (in order), if needed. The default is a dynamic release build.
 @rem
 @rem   nogc64   disable LJ_GC64 mode for x64
-@rem   debug    emit debug symbols
+@rem   lua52compat   enable extra Lua 5.2 extensions
+@rem   debug         emit debug symbols
 @rem   amalg    amalgamated build
-@rem   static   static linkage
+@rem   static        create static lib to statically link into your project
+@rem   mixed         create static lib to build a DLL in your project
 
 @if not defined INCLUDE goto :FAIL
 
@@ -19,7 +21,7 @@ set PROMPT=$p$g
 @rem Add more debug flags here, e.g. DEBUGCFLAGS=/DLUA_USE_ASSERT
 
 @set DEBUGCFLAGS=/Zi /DLUA_USE_ASSERT
-@set LJCOMPILE=cl /nologo /c /O2 /W3 /D_CRT_SECURE_NO_DEPRECATE
+@set LJCOMPILE=cl /nologo /c /O2 /W3 /D_CRT_SECURE_NO_DEPRECATE /D_CRT_STDIO_INLINE=__declspec(dllexport)__inline
 @set LJDYNBUILD=/DLUA_BUILD_AS_DLL /MD
 @set LJDYNBUILD_DEBUG=/DLUA_BUILD_AS_DLL /MDd
 @set LJCOMPILETARGET=/Zi
@@ -71,6 +73,10 @@ if exist minilua.exe.manifest^
 @set LJCOMPILE=%LJCOMPILE% /DLUAJIT_DISABLE_GC64
 
 :DA
+@if "%1" neq "lua52compat" goto :NOLUA52COMPAT
+@shift
+@set LJCOMPILE=%LJCOMPILE% /DLUAJIT_ENABLE_LUA52COMPAT
+:NOLUA52COMPAT
 minilua %DASM% -LN %DASMFLAGS% -o host\buildvm_arch.h %DASC%
 @if errorlevel 1 goto :BAD
 
@@ -117,6 +123,7 @@ buildvm -m folddef -o lj_folddef.h lj_opt_fold.c
 %LJCOMPILE% /MD %LJDYNBUILD% lj_*.c lib_*.c
 @if errorlevel 1 goto :BAD
 
+@if "%1"=="mixed" goto :STATICLIB
 %LJLINK% /DLL /OUT:%LJDLLNAME% lj_*.obj lib_*.obj
 @if errorlevel 1 goto :BAD
 @goto :MTDLL
@@ -124,6 +131,8 @@ buildvm -m folddef -o lj_folddef.h lj_opt_fold.c
 :STATIC
 %LJCOMPILE% lj_*.c lib_*.c
 @if errorlevel 1 goto :BAD
+
+:STATICLIB
 %LJLIB% /OUT:%LJLIBNAME% lj_*.obj lib_*.obj
 @if errorlevel 1 goto :BAD
 @goto :MTDLL
@@ -133,6 +142,7 @@ buildvm -m folddef -o lj_folddef.h lj_opt_fold.c
 %LJCOMPILE% %LJDYNBUILD% ljamalg.c
 @if errorlevel 1 goto :BAD
 
+@if "%2"=="mixed" goto :AMALGSTATICLIB
 %LJLINK% /DLL /OUT:%LJDLLNAME% ljamalg.obj lj_vm.obj
 @if errorlevel 1 goto :BAD
 @goto :MTDLL
@@ -140,6 +150,9 @@ buildvm -m folddef -o lj_folddef.h lj_opt_fold.c
 :AMALGSTATIC
 %LJCOMPILE% ljamalg.c
 @if errorlevel 1 goto :BAD
+
+:AMALGSTATICLIB
+%LJLIB% /OUT:%LJLIBNAME% ljamalg.obj lj_vm.obj
 
 %LJLINK% /OUT:%LJDLLNAME% ljamalg.obj lj_vm.obj
 @if errorlevel 1 goto :BAD

@@ -5,6 +5,7 @@
 #
 TODAY     := $(shell date +%d-%B-%Y)
 YEAR      := $(shell date +%Y)
+PYTHON    := py -3
 THIS_FILE := Makefile.Windows
 MAKEFLAGS += --warn-undefined-variables
 
@@ -24,7 +25,6 @@ VER_MINOR = 1
 VER_MICRO = 0
 VERSION   = $(VER_MAJOR).$(VER_MINOR).$(VER_MICRO)
 
-PYTHON  = py -3
 OBJ_DIR = objects
 
 export CL=
@@ -44,8 +44,7 @@ else
   BITS = 32
 endif
 
-MSVC_ROOT  = $(realpath $(VCToolkitInstallDir))
-MINGW_ROOT = $(realpath $(MINGW_TDM))
+MSVC_ROOT = $(realpath $(VCToolkitInstallDir))
 
 ifeq ($(CC),cl)
   RCFLAGS = -D_MSC_VER
@@ -80,11 +79,18 @@ endif
 #
 # 'CFLAGS' common to all targets
 #
-CFLAGS = -I./src            \
-         -I./dynasm         \
-         -I./$(OBJ_DIR)     \
-         -DLJ_ARCH_HASFPU=1 \
+CFLAGS = -I./src                   \
+         -I./dynasm                \
+         -I./$(OBJ_DIR)            \
+         -Fd./$(OBJ_DIR)/vc140.pdb \
+         -DLJ_ARCH_HASFPU=1        \
          -DLUA_USE_ASSERT
+
+ifeq ($(CC),cl)
+  CFLAGS += -wd4244 -wd5287
+else
+  CFLAGS += -Wno-unused-command-line-argument
+endif
 
 ifeq ($(USE_52COMPAT),1)
   CFLAGS += -DLUAJIT_ENABLE_LUA52COMPAT
@@ -123,7 +129,7 @@ else
 endif
 
 LDFLAGS = -nologo -debug -incremental:no \
-          -machine:$(CPU) -map -verbose  \
+          -machine:$(CPU) -verbose       \
           -nodefaultlib:oldnames.lib     \
           -nodefaultlib:uuid.lib
 
@@ -308,7 +314,9 @@ $(OBJ_DIR)/buildvm_arch.h: $(OBJ_DIR)/minilua.exe ./dynasm/dynasm.lua $(vm_CODE)
 	$< ./dynasm/dynasm.lua -o $@ $(vm_FLAGS) $(vm_CODE)
 	@echo
 
-src/luajit.h: $(OBJ_DIR)/minilua.exe src/luajit_rolling.h $(OBJ_DIR)/luajit_relver.txt
+src/luajit.h: $(OBJ_DIR)/minilua.exe       \
+              $(OBJ_DIR)/luajit_relver.txt \
+              src/luajit_rolling.h
 	$(call gen_to_from, $@, src/luajit_rolling.h $(OBJ_DIR)/luajit_relver.txt)
 	cd src ; \
 	../$< host/genversion.lua luajit_rolling.h ../$(OBJ_DIR)/luajit_relver.txt luajit.h
@@ -372,7 +380,7 @@ $(OBJ_DIR)/static/%.obj: %.c | $(CC).args $(OBJ_DIR)/static
 	$(call C_preprocess, $@, $<)
 
 $(OBJ_DIR)/%.res: $(OBJ_DIR)/%.rc
-	$(call create_res_file, $@, $<)
+	$(call RC_compile, $@, $<)
 
 $(LJ_RC): $(THIS_FILE) | $(OBJ_DIR)
 	$(call create_rc_file, $@, "LuaJIT; a Just-In-Time (JIT) compiler for the Lua programming language", VFT_DLL)
@@ -388,7 +396,7 @@ $(OBJ_DIR)/cpp-filter.py: $(THIS_FILE) | $(OBJ_DIR)
 	$(call generate_py,$@,$(CPP_FILTER_PY))
 
 clean: clean_msvcbuild
-	rm -f vc14*.pdb clang-cl.args cl.args link.args link.tmp lib.args src/luajit.h
+	rm -f clang-cl.args cl.args link.args link.tmp lib.args src/luajit.h
 	rm -fr $(OBJ_DIR)
 
 #
@@ -401,13 +409,31 @@ clean_msvcbuild:
 
 vclean realclean: clean
 	rm -fr bin lib
-	rm -f .depend.Windows
 
 install: all
 	cp --update $(LJ_IMP_LIB) $(LJ_STAT_LIB)                   $(INSTALL_ROOT)/lib
 	cp --update $(LJ_DLL:.dll=.{dll,pdb}) bin/luajit.{exe,pdb} $(INSTALL_ROOT)/bin
 
 FORCE:
+
+#
+# Fixed dependencies:
+#
+$(addprefix $(OBJ_DIR)/, \
+  lib_base.obj           \
+  lib_debug.obj          \
+  lib_jit.obj            \
+  lib_package.obj        \
+  lj_api.obj             \
+  lj_debug.obj           \
+  lj_dispatch.obj        \
+  lj_err.obj             \
+  lj_gdbjit.obj          \
+  lj_parse.obj           \
+  lj_profile.obj         \
+  lj_record.obj          \
+  lj_trace.obj): src/lj_debug.h src/lj_win.h
+
 
 #
 # The following assumes you have MSys/Cygwin's echo with colour support.
@@ -428,7 +454,7 @@ define Warning
 endef
 
 define generate
-  $(call green_msg, Generating$(BRIGHT_WHITE)$(1))
+  $(call green_msg, Generating $(BRIGHT_WHITE)$(strip $(1)))
   $(file > $(1),$(call Warning,$(2)))
 endef
 
@@ -462,13 +488,15 @@ else
   pp_comment = The raw preprocessed output of '$(strip $(1))':
 endif
 
+CPP_CMD = $(_CC) -E
+
 define C_preprocess
   $(file  > $(1),/* $(call pp_comment, $(2)))
-  $(file >> $(1), * $(CC) -E)
-  @$(foreach f, $(CFLAGS), $(file >> $(2), * $(f)))
+  $(file >> $(1), * $(CPP_CMD))
+  @$(foreach f, $(CFLAGS), $(file >> $(1), * $(f)))
   $(file >> $(1), *---------------------------------------------------------)
   $(file >> $(1), */)
-  $(_CC) -E @$(CC).args $(1) | $(PYTHON) $(OBJ_DIR)/cpp-filter.py $(pp_filter) >> $(1)
+  $(CPP_CMD) @$(CC).args $(2) | $(PYTHON) $(OBJ_DIR)/cpp-filter.py $(pp_filter) >> $(1)
 endef
 
 define C_compile
@@ -477,42 +505,40 @@ define C_compile
 endef
 
 define C_compile_MP
-  $(call green_msg, Compiling $(words $(filter %.c, $(2))) files in one go...)
+  $(call green_msg, Compiling $(words $(filter %.c, $(2))) files for $(BRIGHT_WHITE)$(strip $(3)))
   $(call C_compile, $(1), -MP $(2))
 endef
 
+define RC_compile
+  rc -nologo $(RCFLAGS) -fo $(1) $(2)
+  @echo
+endef
+
 define link_EXE
-  $(call green_msg, Linking $(1))
+  $(call green_msg, Linking $(BRIGHT_WHITE)$(strip $(1)))
   $(file  > $(OBJ_DIR)/check-for-unused-libs.py,if 1:)
   $(file >> $(OBJ_DIR)/check-for-unused-libs.py,$(CHECK_FOR_UNUSED_LIBS_PY))
   $(call create_resp_file, link.args, $(LDFLAGS) $(2))
   link -out:$(strip $(1)) @link.args > link.tmp
-  @cat link.tmp >> $(1:.exe=.map)
   @rm -f $(1:.exe=.exp) $(1:.exe=.lib)
   @$(PYTHON) $(OBJ_DIR)/check-for-unused-libs.py link.tmp
 endef
 
 define link_DLL
-  $(call green_msg, Linking $(1))
+  $(call green_msg, Linking $(BRIGHT_WHITE)$(strip $(1)))
   $(file  > $(OBJ_DIR)/check-for-unused-libs.py,if 1:)
   $(file >> $(OBJ_DIR)/check-for-unused-libs.py,$(CHECK_FOR_UNUSED_LIBS_PY))
   $(call create_resp_file, link.args, -dll $(LDFLAGS) -implib:$(strip $(3)) $(2))
   link -out:$(strip $(1)) @link.args > link.tmp
-  @cat link.tmp >> $(1:.dll=.map)
   @rm -f $(3:.lib=.exp)
   @$(PYTHON) $(OBJ_DIR)/check-for-unused-libs.py link.tmp
 endef
 
 define create_static_lib
-  $(call green_msg, Creating $(1))
+  $(call green_msg, Creating static library $(BRIGHT_WHITE)$(strip $(1)))
   $(call create_resp_file, lib.args, $(2))
   @rm -f $(1)
   lib -nologo -out:$(strip $(1)) -machine:$(CPU) @lib.args
-  @echo
-endef
-
-define create_res_file
-  rc -nologo $(RCFLAGS) -fo $(1) $(2)
   @echo
 endef
 
@@ -670,35 +696,3 @@ define CHECK_FOR_UNUSED_LIBS_PY
 
   report (process_map(State.IDLE))
 endef
-
-DEP_CFLAGS = -MM
-DEP_CFLAGS += $(sort $(filter -D%, $(CFLAGS))) \
-                     $(filter -I%, $(CFLAGS))
-
-DEP_REPLACE = -e 's@\(.*\)\.o:@\n$$(OBJ_DIR)\/static\/\1.obj $$(OBJ_DIR)\/dynamic\/\1.obj:@'
-
-depend: $(GENERATED)
-	$(call green_msg, Generating dependencies for $(words $(ALL_SRC)) source-files ...)
-	$(call generate, .depend.Windows, #)
-	gcc $(DEP_CFLAGS) $(ALL_SRC) | sed $(DEP_REPLACE) >> .depend.Windows
-	@echo
-
-#
-# Fixed dependencies:
-#
-$(addprefix $(OBJ_DIR)/, \
-  lib_base.obj           \
-  lib_debug.obj          \
-  lib_jit.obj            \
-  lib_package.obj        \
-  lj_api.obj             \
-  lj_debug.obj           \
-  lj_dispatch.obj        \
-  lj_err.obj             \
-  lj_gdbjit.obj          \
-  lj_parse.obj           \
-  lj_profile.obj         \
-  lj_record.obj          \
-  lj_trace.obj): src/lj_debug.h src/lj_win.h
-
--include .depend.Windows
