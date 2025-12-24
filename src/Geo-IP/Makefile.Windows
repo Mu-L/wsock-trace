@@ -8,85 +8,39 @@
 #  *) IPFire's libloc. The main code of this is under 'IPFire/src'.
 #  *) DB-IP and IP-to-ASN.
 #
-DATE      := $(shell date +%d-%B-%Y)
-THIS_FILE := Makefile.Windows
-MAKEFLAGS += --warn-undefined-variables
+TOP_DIR = ..
 
-export CL=
-
-USE_CRT_DEBUG ?= 0
-OBJ_DIR       ?= geoip_obj
-
-define Usage
-
-  Usage: $(MAKE) -f $(THIS_FILE) <CC=cl | clang-cl> [all | clean | vclean | install | runtests]
-endef
-
-ifneq ($(CC),clang-cl)
-  ifneq ($(CC),cl)
-    $(error $(Usage))
-  endif
-endif
-
-#
-# Use correct prefix:
-#
-ifeq ($(CPU),x64)
-  uscore :=
-  bits   := 64
-else
-  uscore := _
-  bits   := 32
-endif
-
-#
-# Get a list of .obj-files from .c-files:
-#
-c_to_obj = $(addprefix $(OBJ_DIR)/, \
-             $(notdir $(1:.c=.obj)))
-
-CFLAGS       = -nologo -Zi -W3
-LDFLAGS      = -debug -map -verbose -nologo -incremental:no
-INSTALL_ROOT = $(realpath $(VSINSTALLDIR))
+include $(TOP_DIR)/Common.Windows
 
 ifeq ($(USE_CRT_DEBUG),1)
-  CFLAGS += -MDd -D_CRTDBG_MAP_ALLOC -FIcrtdbg.h
+  CFLAGS += -MDd -Od -D_CRTDBG_MAP_ALLOC -FIcrtdbg.h
 else
-  CFLAGS += -MD
+  CFLAGS += -MD -O2
 endif
 
-CFLAGS += -D_CRT_SECURE_NO_WARNINGS  \
-          -D_CRT_NONSTDC_NO_WARNINGS \
-          -D_CRT_OBSOLETE_NO_WARNINGS
-
-ifeq ($(CC),clang-cl)
-  CFLAGS += -ferror-limit=5       \
-            -Wno-unused-function  \
+ifeq ($(CC),cl)
+  CFLAGS += -wd4018 -wd4101 -wd4146 -wd4267
+else
+  #
+  # 'clang-cl' + 'icx':
+  #
+  CFLAGS += -Wno-unused-function  \
             -Wno-unused-variable  \
             -Wno-writable-strings \
-            -Wno-missing-braces   \
-            -Wno-unused-command-line-argument
-else
-  CFLAGS += -wd4018 -wd4101 -wd4146 -wd4267
+            -Wno-missing-braces
 endif
 
-#
-# CFLAG common to all .c-files
-#
-CFLAGS += -I.. -I.              \
-          -D_WIN32_WINNT=0x0601 \
-          -DWIN32_LEAN_AND_MEAN \
+CFLAGS += -I.                         \
+          -I..                        \
+          -D_CRT_SECURE_NO_WARNINGS   \
+          -D_CRT_NONSTDC_NO_WARNINGS  \
+          -D_CRT_OBSOLETE_NO_WARNINGS \
+          -D_WIN32_WINNT=0x0601       \
+          -DWIN32_LEAN_AND_MEAN       \
           -D_WINSOCK_DEPRECATED_NO_WARNINGS
 
 #
-# CFLAG for 'test-MMDB.c', '../getopt.c' and '$(MMDB_SRC)':
-#
-MMDB_CFLAGS = -I./GeoipMMDB \
-              -D_UNICODE    \
-              -DUNICODE
-
-#
-# CFLAG for $(IPFIRE_SRC):
+# For '$(IPFIRE_SRC)':
 #
 CFLAGS += -I./IPFire/src                \
           -I./IPFire/src/libloc/windows \
@@ -123,22 +77,14 @@ IPFIRE_SRC = $(addprefix IPFire/src/, \
 
 IP2LOCATION_SRC = # ../ip2loc.c
 
-GEOIP_OBJ       = $(call c_to_obj, $(GEOIP_SRC))
-MMDB_OBJ        = $(call c_to_obj, $(MMDB_SRC))
-IPFIRE_OBJ      = $(call c_to_obj, $(IPFIRE_SRC))
-IP2LOCATION_OBJ = $(call c_to_obj, $(IP2LOCATION_SRC))
+GEOIP_OBJ       = $(call c_to_obj, $(GEOIP_SRC),)
+MMDB_OBJ        = $(call c_to_obj, $(MMDB_SRC),)
+IPFIRE_OBJ      = $(call c_to_obj, $(IPFIRE_SRC),)
+IP2LOCATION_OBJ = $(call c_to_obj, $(IP2LOCATION_SRC),)
+MMDB_I          = $(call c_to_i,   $(MMDB_SRC))
 
-ifeq ($(CC),gcc)
-  GEOIP_STAT_LIB = libgeoip-$(CPU).a
-  GEOIP_IMP_LIB  = libgeoip-$(CPU).dll.a
-  WS2_32_LIB     = -lws2_32
-  DNSAPI_LIB     = -ldnsapi
-else
-  GEOIP_STAT_LIB = geoip-$(CPU).lib
-  GEOIP_IMP_LIB  = geoip_imp-$(CPU).lib
-  WS2_32_LIB     = ws2_32.lib
-  DNSAPI_LIB     = dnsapi.lib
-endif
+GEOIP_STAT_LIB = geoip-$(CPU).lib
+GEOIP_IMP_LIB  = geoip_imp-$(CPU).lib
 
 TARGETS = $(GEOIP_STAT_LIB) \
           $(GEOIP_IMP_LIB)  \
@@ -148,132 +94,49 @@ TARGETS = $(GEOIP_STAT_LIB) \
 
 all: $(TARGETS)
 
-$(OBJ_DIR):
-	- mkdir $@
-
 $(GEOIP_STAT_LIB): $(GEOIP_OBJ) $(MMDB_OBJ) $(IPFIRE_OBJ) $(IP2LOCATION_OBJ)
 	$(call create_static_lib, $@, $^)
 
 $(GEOIP_IMP_LIB): geoip-$(CPU).dll
 
 geoip-$(CPU).dll: $(OBJ_DIR)/geoip-$(CPU).def $(GEOIP_STAT_LIB)
-	$(call link_DLL, $@, -def:$^ $(WS2_32_LIB) $(DNSAPI_LIB), $(GEOIP_IMP_LIB))
+	$(call link_DLL, $@, -def:$^ dnsapi.lib ws2_32.lib, $(GEOIP_IMP_LIB))
 
-$(MMDB_OBJ) $(OBJ_DIR)/getopt.obj $(OBJ_DIR)/test-MMDB.obj: CFLAGS += $(MMDB_CFLAGS)
-
-$(OBJ_DIR)/%.obj: %.c | $(OBJ_DIR)
-	$(CC) -c $(CFLAGS) -Fo./$@ $<
-	@echo
-
-$(OBJ_DIR)/%.obj: %.cpp | $(OBJ_DIR)
-	$(CC) -c -std:c++20 -Zc:strictStrings- -EHsc $(CFLAGS) -Fo./$@ $<
-	@echo
+$(MMDB_OBJ)              \
+$(OBJ_DIR)/getopt.obj    \
+$(OBJ_DIR)/test-MMDB.obj \
+$(MMDB_I)                \
+getopt.i                 \
+test-MMDB.i:             EXTRA_CFLAGS = -I./GeoipMMDB -D_UNICODE -DUNICODE
 
 $(OBJ_DIR)/geoip-$(CPU).def: $(GEOIP_STAT_LIB) $(THIS_FILE) | $(OBJ_DIR)
 	$(call create_def_file, $@, $(GEOIP_STAT_LIB), geoip_ MMDB_ ip2loc_ loc_ INET_ \
 	                        win_strerror dword_str flags_decode fopen_excl get_date_str list_lookup_name)
 
 test-MMDB.exe: $(OBJ_DIR)/test-MMDB.obj $(OBJ_DIR)/getopt.obj $(GEOIP_IMP_LIB)
-	$(call link_EXE, $@, $^ $(WS2_32_LIB))
+	$(call link_EXE, $@, $^ ws2_32.lib)
 
 test-geoip.exe: $(OBJ_DIR)/test-geoip.obj $(OBJ_DIR)/getopt.obj $(GEOIP_IMP_LIB)
-	$(call link_EXE, $@, $^ $(WS2_32_LIB))
+	$(call link_EXE, $@, $^ ws2_32.lib)
 
 runtests: test-geoip.exe test-MMDB.exe
-	$(call green_msg, Running ./test-geoip.exe)
+	$(call green_msg, Running $(BRIGHT_WHITE)./test-geoip.exe)
 	./test-geoip.exe
-	$(call green_msg, Running ./test-MMDB.exe)
+	$(call green_msg, Running $(BRIGHT_WHITE)./test-MMDB.exe)
 	./test-MMDB.exe
 
 install: all
-	- $(call copy_file, $(GEOIP_STAT_LIB) $(GEOIP_IMP_LIB), $(INSTALL_ROOT)/lib)
-	- $(call copy_file, geoip-$(CPU).dll,                   $(INSTALL_ROOT)/bin)
-	- $(call copy_file, geoip-$(CPU).pdb,                   $(INSTALL_ROOT)/bin)
+	$(call copy_file, $(GEOIP_STAT_LIB) $(GEOIP_IMP_LIB), $(INSTALL_ROOT)/lib)
+	$(call copy_file, geoip-$(CPU).dll,                   $(INSTALL_ROOT)/bin)
+	$(call copy_file, geoip-$(CPU).pdb,                   $(INSTALL_ROOT)/bin)
 
 #
 # '$(sort ..)' create a unique list.
 #
-link_JUNK = $(sort $(TARGETS)                                \
-                   $(TARGETS:.dll=.map) $(TARGETS:.dll=.pdb) \
-                   $(TARGETS:.exe=.map) $(TARGETS:.exe=.pdb))
+link_JUNK = $(sort $(TARGETS)           \
+                   $(TARGETS:.dll=.pdb) \
+                   $(TARGETS:.exe=.pdb))
 
 clean realclean vclean:
 	rm -f vc14*.pdb link.tmp geoip-$(CPU).dll $(link_JUNK)
 	rm -fr $(OBJ_DIR)
-
-#
-# GNU-make macros:
-#
-# This assumes you have a MSys/Cygwin 'echo.exe' program with colour support.
-#
-colour_msg = @echo -e "$(1)\e[0m"
-green_msg  = $(call colour_msg,\e[1;32m$(strip $(1)))
-
-define link_EXE
-  $(call green_msg, Linking $(1))
-  link $(LDFLAGS) -out:$(strip $(1)) $(2) > link.tmp
-  @cat link.tmp >> $(1:.exe=.map)
-  @echo
-endef
-
-define link_DLL
-  $(call green_msg, Linking $(1))
-  link -out:$(strip $(1)) $(LDFLAGS) -dll -implib:$(strip $(3)) $(2) > link.tmp
-  @cat link.tmp >> $(1:.dll=.map)
-  @rm -f $(3:.lib=.exp)
-  @echo
-endef
-
-define create_static_lib
-  $(call green_msg, Creating static lib $(1))
-  lib -nologo -out:$(strip $(1)) -machine:$(CPU) $(2)
-  @echo
-endef
-
-define copy_file
-  cp --update $(strip $(1) $(2))
-  @echo
-endef
-
-#
-# This .def-file macro uses 'nm <library>'.
-#
-# Export all symbols that matches the prefix(es). Only 'x86' symbols are supported at the moment.
-#
-# Usage:
-#   arg1, $(1): Name of .def-file. The .dll name is deducted from this.
-#   arg2, $(2): Name of .lib-file.
-#   arg3, $(3): the code/data-symbol prefix(es). E.g. "geoip_ MMDB_"
-#
-extract_code_syms = nm $(1) | grep $(foreach s, $(2), -e ' T $(uscore)$(s).*') | \
-                    sed 's/^.* $(uscore)/  /' | sort | uniq
-
-extract_data_syms = nm $(1)                                  | \
-                    grep $(foreach s, $(2), -e ' [BDCGR] $(uscore)$(s).*') | \
-                    sed -e 's/^.* $(uscore)\([_a-zA-Z0-9]*\)/  \1  DATA/'  | \
-                    sort | uniq
-
-define create_def_file
-  $(call green_msg, Generating $(1).)
-  $(file >  $(1), ;)
-  $(file >> $(1), ; This file was generated by $(realpath $(THIS_FILE)))
-  $(file >> $(1), ; at $(DATE).)
-  $(file >> $(1), ;)
-  $(file >> $(1), ; DO NOT EDIT. YOUR CHANGED WILL BE LOST.)
-  $(file >> $(1), ;)
-  $(file >> $(1), LIBRARY $(notdir $(1:.def=.dll)))
-  $(file >> $(1), EXPORTS)
-  $(call extract_code_syms, $(2), $(3)) >> $(1)
-  $(call extract_data_syms, $(2), $(3)) >> $(1)
-endef
-
-DEP_CFLAGS  = -MM $(filter -D% -I%, $(CFLAGS))
-DEP_REPLACE = sed -e 's/\(.*\)\.o: /\n$$(OBJ_DIR)\/\1.obj: /'
-
-ALL_SOURCES = $(GEOIP_SRC) $(MMDB_SRC) $(IPFIRE_SRC) $(IP2LOCATION_SRC)
-
-depend:
-	$(call Generating, .depend.Windows, #)
-	gcc $(DEP_CFLAGS) $(ALL_SOURCES) | $(DEP_REPLACE) >> .depend.Windows
-
--include .depend.Windows

@@ -1,0 +1,574 @@
+#
+# Common defintions and macros for all GNU Makefiles
+# in Wsock-trace. Targeting MSVC, clang-cl or Intel's ICX, 32 and 64-bit.
+#
+TODAY       := $(shell date +%d-%B-%Y)
+YEAR        := $(shell date +%Y)
+PYTHON      := py -3
+COMMA       := ,
+THIS_FILE   := Makefile.Windows
+COMMON_FILE := $(TOP_DIR)/Common.Windows
+MAKEFLAGS   += --warn-undefined-variables
+
+#
+# Roots and options. Change to suite.
+#
+INSTALL_ROOT  := $(realpath $(VSINSTALLDIR))
+MSVC_ROOT     := $(realpath $(VCToolkitInstallDir))
+WX_ROOT       := $(realpath $(WXWIDGETS))
+CLANG32_ROOT  := $(realpath $(CLANG_32))
+CLANG64_ROOT  := $(realpath $(CLANG_64))
+
+LIBLOC_ROOT   := $(TOP_DIR)/Geo-IP/IPFire/src
+LUAJIT_ROOT   := $(TOP_DIR)/LuaJIT
+LWIP_ROOT     ?= f:/MinGW32/src/inet/lwip
+MONGOOSE_ROOT ?= f:/MinGW32/src/inet/Web/Mongoose
+OPENSSL_ROOT  ?= f:/MinGW32/src/inet/Crypto/OpenSSL
+PCAP_ROOT     ?= f:/MinGW32/src/inet/libpcap
+
+#
+# Set to nothing in './Makefile.Windows' if 'USE_LUAJIT=0'
+#
+LUAJIT_LIB := $(LUAJIT_ROOT)/lib/luajit_static-$(CPU).lib
+
+#
+# For preprocessing some UCRT .cpp-files:
+#
+UCRT_SRC_ROOT  = $(realpath $(WindowsSdkDir))/Source/$(WindowsSdkVer)/ucrt
+VCRUNTIME_ROOT = $(MSVC_ROOT)/crt/src/vcruntime
+
+USE_ASAN       ?= 0
+USE_ASTYLE     ?= 1
+USE_PP_DEBUG   ?= 1
+USE_UBSAN      ?= 0
+USE_CRT_DEBUG  ?= 0
+USE_CRT_STATIC ?= 0
+USE_LUAJIT     ?= 1
+USE_LWIP       ?= 0
+USE_MONGOOSE   ?= 0
+USE_MP_COMPILE ?= 1
+
+#
+# Option for 'Geo-IP/IPFire/src/Makefile.Windows':
+#
+# Use this Winsock-trace library for '$(LIBLOC_DLL)'.
+#
+USE_WSOCK_TRACE ?= 0
+
+#
+# Option for 'Geo-IP/IPFire/src/Makefile.Windows':
+#
+# Use OpenSSL?
+#
+# Otherwise just fake it in a non-obstructive way:
+# any macro in 'fake-OpenSSL/openssl/fake-it.h' will cause a
+# signature operation in 'test-signature.exe' to fail.
+#
+USE_OPENSSL ?= 1
+
+define Usage
+
+  Usage: "$(MAKE) -f $(THIS_FILE) <CPU=x86|x64> CC=[cl | clang-cl | icx] [all | clean | realclean | install]"
+  Specify CC=cl       - use MSVC
+  Specify CC=clang-cl - use clang-cl
+  Specify CC=icx      - use Intel's ICX
+endef
+
+OBJ_DIR = objects
+
+export CL=
+
+c_to_obj = $(addprefix $(OBJ_DIR)/$(strip $(2)), $(notdir $(1:.c=.obj)))
+c_to_i   = $(notdir $(1:.c=.i))
+
+#
+# Use correct prefix:
+#
+ifeq ($(CPU),x64)
+  USCORE :=
+  BITS   := 64
+else
+  USCORE := _
+  BITS   := 32
+endif
+
+VCVARS_VER ?=
+
+#
+# CFLAGS, LDFLAGS and RCFLAGS common to all 'Makefile.Windows' files:
+#
+CFLAGS  = -nologo -Zi -W3 -Fd./$(OBJ_DIR)/vc140.pdb
+LDFLAGS = -nologo -debug -verbose -incremental:no -machine:$(CPU) -subsystem:console # -nxcompat:no
+RCFLAGS = -nologo -DBITNESS=$(BITS)
+
+#
+# C++ specific flags:
+#
+CXXFLAGS = -std:c++20 -EHsc
+
+ifeq ($(CC),cl)
+  #
+  # MSVC specifics:
+  #
+  ifeq ($(VCVARS_VER),110)
+    #
+    # For Visual-Studio 2013 (32-bit only):
+    #
+    MSVC_ROOT = $(realpath $(VC_OLD_ROOT))
+    _CC       = $(MSVC_ROOT)/bin/cl.exe
+    CFLAGS   += -Dinline=__inline
+  else
+    #
+    # For Visual-Studio 2017+:
+    # The first 'link.exe' found on PATH is assumed to work for all CPUs
+    #
+    _CC = $(MSVC_ROOT)/bin/HostX64/$(CPU)/cl.exe
+  endif
+
+  CXXFLAGS += -Zc:strictStrings-
+
+else ifeq ($(CC),clang-cl)
+  #
+  # clang-cl specifics:
+  #
+  _CC = $(CLANG$(BITS)_ROOT)/bin/clang-cl.exe
+
+  CFLAGS += -fms-compatibility \
+            -ferror-limit=5    \
+            -Wno-unused-command-line-argument
+
+else ifeq ($(CC),icx)
+  #
+  # Force using 'x64' since that's the only Intel compiler I have
+  #
+  CPU = x64
+  _CC = $(call path_find, icx.exe)
+
+  #
+  # Intel ICX specifics (it is LLVM based. So very similar to 'clang-cl'):
+  #
+  CFLAGS += -fms-compatibility \
+            -ferror-limit=5
+
+else
+  $(error $(Usage))
+endif
+
+#
+# Define paths to libraries without the 'vcvarsall.bat' non-sense.
+#
+# The path for the CRT libraries:
+#
+LDFLAGS += -libpath:$(MSVC_ROOT)/lib/$(CPU)
+
+#
+# 'WindowsKits' root is in '$(WindowsSdkDir)' and
+# 'WindowsKits' version is in '$(WindowsSdkVer)'.
+#
+# Hence the "User-Mode" Windows libraries for 'x86' are in:
+#   $(WindowsSdkDir)/Lib/$(WindowsSdkVer)/um/x86/
+#
+# Ditto for the Universal CRT libraries: for 'x86' the UCRT libs are in:
+#   $(WindowsSdkDir)/Lib/$(WindowsSdkVer)/ucrt/x86/
+#
+LDFLAGS += -libpath:$(realpath $(WindowsSdkDir))/Lib/$(WindowsSdkVer)/um/$(CPU) \
+           -libpath:$(realpath $(WindowsSdkDir))/Lib/$(WindowsSdkVer)/ucrt/$(CPU)
+
+#
+# Ignore some .lib-files pulled in by default:
+#
+LDFLAGS += -nodefaultlib:oldnames.lib -nodefaultlib:uuid.lib
+
+
+ifeq ($(CC),cl)
+  RCFLAGS += -D_MSC_VER
+
+else ifeq ($(CC),clang-cl)
+  RCFLAGS += -D__clang__
+
+else ifeq ($(CC),icx)
+  RCFLAGS += -D__INTEL_LLVM_COMPILER
+endif
+
+#
+# If '$(CPU)' was not specified on make's command-line, use whatever value
+# the '%CPU' is set to.
+#
+ifeq ($(CPU),x64)
+  IS_ARM = 0
+  BITS   = 64
+
+else ifeq ($(CPU),x86)
+  IS_ARM = 0
+  BITS   = 32
+
+else ifeq ($(CPU),arm)
+  IS_ARM   = 1
+  BITS     = 32
+  RCFLAGS += -D_ARM
+  LDFLAGS += -nodefaultlib:runtimeobject.lib
+
+else ifeq ($(CPU),arm64)
+  IS_ARM   = 1
+  BITS     = 64
+  RCFLAGS += -D_ARM64
+  LDFLAGS += -nodefaultlib:runtimeobject.lib
+
+else
+  $(error Unsupported CPU=$(CPU))
+endif
+
+ifeq ($(USE_CRT_DEBUG),1)
+  d  = d
+ _D = _d
+else
+  d =
+ _D =
+endif
+
+
+#
+# 'all' is in respective 'Makefile.Windows'
+#
+default: all
+
+#
+# Some checks for required tools.
+# Use at will.
+#
+path_find  = $(word 1, $(wildcard $(addsuffix /$(strip $(1)),$(subst ;, ,$(subst \,/,$(PATH))))))
+file_exist = $(wildcard $(1))
+
+ifeq ($(call file_exist,$(_CC)),)
+  check_compiler:
+	$(error "$(_CC)" not found. Edit $(THIS_FILE) manually.)
+else
+  check_compiler:
+	$(call green_msg, Assuming $(BRIGHT_WHITE)$(_CC) $(BRIGHT_GREEN)is okay for $(BITS)-bit.)
+endif
+
+ifeq ($(CC)-$(USE_UBSAN),cl-1)
+  check_ubsan:
+	$(error 'USE_UBSAN' is not for 'cl')
+else
+  check_ubsan:
+	$(info Building with 'USE_UBSAN=$(USE_UBSAN)')
+endif
+
+
+$(OBJ_DIR)/%.obj: %.c | $(CC).args $(OBJ_DIR)
+	$(call C_compile, $@, $<)
+
+$(OBJ_DIR)/%.obj: %.cpp | $(CC).args $(OBJ_DIR)
+	$(call CPP_compile, $@, $<)
+
+$(OBJ_DIR)/%.res: %.rc | $(OBJ_DIR)
+	$(call RC_compile, $@, $<)
+
+$(OBJ_DIR)/%.res: $(OBJ_DIR)/%.rc | $(OBJ_DIR)
+	$(call RC_compile, $@, $<)
+
+$(CC).args: $(THIS_FILE) $(COMMON_FILE)
+	$(call green_msg, All CFLAGS are in $(BRIGHT_WHITE)$@)
+	$(call create_resp_file, $@, -c $(CFLAGS))
+
+%.i: %.c $(CC).args $(OBJ_DIR)/cpp-filter.py FORCE
+	$(call C_preprocess, $@, $<)
+
+%.i: $(UCRT_SRC_ROOT)/*/%.cpp $(CC).args $(OBJ_DIR)/cpp-filter.py FORCE
+	$(call C_preprocess, $@, -I$(UCRT_SRC_ROOT)/inc -I$(VCRUNTIME_ROOT) $<)
+
+$(OBJ_DIR)/cpp-filter.py: $(THIS_FILE) | $(OBJ_DIR)
+	$(call generate_py,$@,$(CPP_FILTER_PY))
+
+bin lib               \
+$(OBJ_DIR)            \
+$(OBJ_DIR)/dynamic    \
+$(OBJ_DIR)/static     \
+$(OBJ_DIR)/lua        \
+$(OBJ_DIR)/libloc-lua \
+$(OBJ_DIR)/py         \
+lua_install           \
+lua_install/luaunit   \
+py3_install           \
+py3_install/location:
+	mkdir --parents $@
+
+FORCE:
+
+#
+# The following assumes you have MSys/Cygwin's echo with colour support.
+#
+BRIGHT_RED   = \e[1;31m
+BRIGHT_GREEN = \e[1;32m
+BRIGHT_WHITE = \e[1;37m
+
+colour_msg  = @echo -e "$(1)\e[0m"
+green_msg   = $(call colour_msg,$(BRIGHT_GREEN)$(strip $(1)))
+gen_to_from = $(call green_msg, Generating $(BRIGHT_WHITE)$(strip $(1)) $(BRIGHT_GREEN)from $(BRIGHT_WHITE)$(strip $(2)))
+
+define generate
+  $(call green_msg, Generating $(BRIGHT_WHITE)$(strip $(1)))
+  $(file > $(1),$(call Warning,$(2)))
+endef
+
+define generate_c
+  $(call generate, $(1),//)
+endef
+
+define generate_py
+  $(call generate, $(1),#)
+  $(file >> $(1),if 1:)
+  $(file >> $(1),$(2))
+endef
+
+define Warning
+  $(1)
+  $(1) DO NOT EDIT! This file was generated automatically
+  $(1) from $(realpath $<). Edit that file instead.
+  $(1)
+endef
+
+EXTRA_CFLAGS ?=
+
+#
+# Compile for plain C
+#
+define C_compile
+  $(_CC) -Fo./$(strip $(1) $(EXTRA_CFLAGS) @$(CC).args $(2))
+  @echo
+endef
+
+define C_compile_MP
+  $(call green_msg, Compiling $(words $(filter %.c, $(2))) files for $(BRIGHT_WHITE)$(strip $(3)))
+  $(call C_compile, $(1), -MP $(2))
+endef
+
+#
+# Compile for C++
+#
+define CPP_compile
+  $(_CC) -Fo./$(strip $(1) @$(CC).args $(CXXFLAGS) $(EXTRA_CFLAGS) $(2))
+  @echo
+endef
+
+define RC_compile
+  rc $(RCFLAGS) -fo $(1) $(2)
+  @echo
+endef
+
+CPP_CMD = $(_CC) -E
+
+ifeq ($(USE_PP_DEBUG),1)
+  ifeq ($(CC),cl)
+    #
+    # '-PD': print all macro definitions
+    #
+    CPP_CMD += -PD -Zc:preprocessor
+  else
+    #
+    # 'clang-cl' / 'icx': '-d1PP': Retain macro definitions in /E mode
+    #
+    CPP_CMD += -d1PP
+  endif
+endif
+
+ifeq ($(USE_ASTYLE),1)
+  pp_filter  = | astyle
+  pp_comment = The preprocessed and AStyled output of '$(strip $(1))':
+else
+  pp_filter =
+  pp_comment = The raw preprocessed output of '$(strip $(1))':
+endif
+
+#
+# Macro to generate a nicer C preprocessed output
+# with the help of '$(OBJ_DIR)/cpp-filter.py' and optionally 'Astyle'.
+#
+define C_preprocess
+  $(file  > $(1),/* $(call pp_comment, $(2)))
+  $(file >> $(1), * $(CPP_CMD))
+  @$(foreach f, $(CFLAGS), $(file >> $(1), *   $(f)))
+  $(file >> $(1), * With these EXTRA_CFLAGS:)
+  @$(foreach f, $(EXTRA_CFLAGS), $(file >> $(1), *   $(f)))
+  $(file >> $(1), */)
+  $(strip $(CPP_CMD) @$(CC).args $(EXTRA_CFLAGS) $(2) | $(PYTHON) $(OBJ_DIR)/cpp-filter.py $(pp_filter) >> $(1))
+  @echo
+endef
+
+define link_EXE
+  $(call green_msg, Linking $(BRIGHT_WHITE)$(strip $(1)))
+  $(file  > $(OBJ_DIR)/check-for-unused-libs.py,if 1:)
+  $(file >> $(OBJ_DIR)/check-for-unused-libs.py,$(CHECK_FOR_UNUSED_LIBRARIES_PY))
+  $(call create_resp_file, link.args, $(LDFLAGS) $(2))
+  link -out:$(strip $(1)) @link.args > link.tmp
+  @rm -f $(1:.exe=.exp) $(1:.exe=.lib)
+  @$(PYTHON) $(OBJ_DIR)/check-for-unused-libs.py link.tmp
+endef
+
+#
+# .obj -> .dll macro
+#   arg1, $(1): The .dll file.
+#   arg2, $(2): The .obj file(s), extra options and libs.
+#   arg3, $(3): The import library
+#
+define link_DLL
+  $(file  > $(OBJ_DIR)/check-for-unused-libs.py,if 1:)
+  $(file >> $(OBJ_DIR)/check-for-unused-libs.py,$(CHECK_FOR_UNUSED_LIBRARIES_PY))
+  $(call green_msg, Linking $(BRIGHT_WHITE)$(strip $(1)))
+  $(call create_resp_file, link.args, -dll $(LDFLAGS) -implib:$(strip $(3)) $(2))
+  link -out:$(strip $(1)) @link.args > link.tmp
+  @rm -f $(3:.lib=.exp)
+  @$(PYTHON) $(OBJ_DIR)/check-for-unused-libs.py link.tmp
+endef
+
+#
+# .obj -> .pyd macro
+#   arg1, $(1): The .pyd file.
+#   arg2, $(2): The .obj file(s), extra options and libs.
+#
+define link_PYD
+  $(file  > $(OBJ_DIR)/check-for-unused-libs.py,if 1:)
+  $(file >> $(OBJ_DIR)/check-for-unused-libs.py,$(CHECK_FOR_UNUSED_LIBRARIES_PY))
+  $(call green_msg, Linking $(BRIGHT_WHITE)$(strip $(1)))
+  $(call create_resp_file, link.args, $(LDFLAGS) -dll $(2))
+  link -out:$(strip $(1)) @link.args > link.tmp
+  @rm -f $(1:.pyd=.lib) $(1:.pyd=.exp)
+  @$(PYTHON) $(OBJ_DIR)/check-for-unused-libs.py link.tmp
+endef
+
+define create_static_lib
+  $(call green_msg, Creating static library $(BRIGHT_WHITE)$(strip $(1)))
+  lib -nologo -out:$(strip $(1)) -machine:$(CPU) $(2)
+  @echo
+endef
+
+define copy_file
+  cp --update $(strip $(1) $(2))
+endef
+
+define create_resp_file
+  $(file > $(1))
+  $(foreach f, $(2), $(file >> $(1),$(strip $(f))) )
+endef
+
+#
+# This .def-file macro uses 'nm <library>'.
+# Only needed in 'Geo-IP/Makefile.Windows'.
+#
+# Export all symbols that matches the prefix(es). Only 'x86' symbols are supported at the moment.
+#
+# Usage:
+#   arg1, $(1): Name of .def-file. The .dll name is deducted from this.
+#   arg2, $(2): Name of .lib-file.
+#   arg3, $(3): the code/data-symbol prefix(es). E.g. "geoip_ MMDB_"
+#
+extract_code_syms = nm $(1) | grep $(foreach s, $(2), -e ' T $(USCORE)$(s).*') | \
+                    sed 's/^.* $(USCORE)/  /' | sort | uniq
+
+extract_data_syms = nm $(1)                                  | \
+                    grep $(foreach s, $(2), -e ' [BDCGR] $(USCORE)$(s).*') | \
+                    sed -e 's/^.* $(USCORE)\([_a-zA-Z0-9]*\)/  \1  DATA/'  | \
+                    sort | uniq
+
+define create_def_file
+  $(call green_msg, Generating $(BRIGHT_WHITE)$(strip $(1)))
+  $(file >  $(1), ;)
+  $(file >> $(1), ; This file was generated by $(realpath $(THIS_FILE)))
+  $(file >> $(1), ; at $(TODAY).)
+  $(file >> $(1), ;)
+  $(file >> $(1), ; DO NOT EDIT. YOUR CHANGED WILL BE LOST.)
+  $(file >> $(1), ;)
+  $(file >> $(1), LIBRARY $(notdir $(1:.def=.dll)))
+  $(file >> $(1), EXPORTS)
+  $(call extract_code_syms, $(2), $(3)) >> $(1)
+  $(call extract_data_syms, $(2), $(3)) >> $(1)
+endef
+
+
+define CPP_FILTER_PY
+  import sys, os
+
+  empty_lines = 0
+  while True:
+    line = sys.stdin.readline()
+    if not line:
+       break
+    line = line.rstrip()
+    if line == "":
+       empty_lines += 1
+       continue
+
+    #
+    # MSVC or clang-cl 'line' directive
+    #
+    if line.startswith("#line") or line.startswith("# "):
+       line = line.replace (r"\\", "/")
+
+    print (line)
+
+    #
+    # Print a newline after a functions or structs
+    #
+    if line == "}" or line == "};":
+       print ("")
+
+  print ("Removed %d empty lines." % empty_lines, file=sys.stderr)
+endef
+
+define CHECK_FOR_UNUSED_LIBRARIES_PY
+  #
+  # Check for unused libraries in a 'link.tmp' file.
+  # Prints with colours using 'colorama' (if available).
+  #
+  import os, sys
+
+  map_file    = sys.argv[1]
+  ignore_libs = [ "oldnames.lib", "uuid.lib" ]
+
+  class State:
+    IDLE   = 0
+    UNUSED = 1
+
+  class Colour:
+    RED = WHITE = RESET = ""
+
+  try:
+    import colorama
+    colorama.init()
+    Colour.RED   = colorama.Fore.RED   + colorama.Style.BRIGHT
+    Colour.WHITE = colorama.Fore.WHITE + colorama.Style.BRIGHT
+    Colour.RESET = colorama.Style.RESET_ALL
+  except:
+    pass
+
+  def cprint (color, s):
+    print ("%s%s%s" % (color, s, Colour.RESET))
+
+  def report (unused):
+    num = len(unused)
+    if num > 0:
+       cprint (Colour.RED, "%d unused librar%s in %s:" % (num, ["y", "ies"][num > 1], map_file))
+       for u in unused:
+           print ("  " + u)
+    cprint (Colour.WHITE, "Done.\n")
+
+  def process_map (state):
+    unused_libs = []
+    f = open (map_file, "rt")
+    lines = f.readlines()
+    f.close()
+    for l in lines:
+      l = l.strip()
+      if l == "Unused libraries:":
+         state = State.UNUSED
+         continue
+      if state == State.UNUSED:
+         if l == "":
+            break
+         if os.path.basename (l).lower() not in ignore_libs:
+            unused_libs.append (l)
+    return unused_libs
+
+  report (process_map(State.IDLE))
+endef

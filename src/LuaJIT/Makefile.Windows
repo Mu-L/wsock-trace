@@ -3,18 +3,20 @@
 #
 # By <gvanem@yahoo.no>.
 #
-TODAY     := $(shell date +%d-%B-%Y)
-YEAR      := $(shell date +%Y)
-PYTHON    := py -3
-THIS_FILE := Makefile.Windows
-MAKEFLAGS += --warn-undefined-variables
+TOP_DIR = ..
+
+include $(TOP_DIR)/Common.Windows
 
 #
-# Options:
+# Define .DLL and imp-lib name.
+#
+LJ_DLL     = bin/luajit-$(CPU).dll
+LJ_IMP_LIB = lib/luajit-$(CPU).lib
+
+#
+# Local options:
 #
 USE_AMALGATED  ?= 0
-USE_ASTYLE     ?= 1
-USE_MP_COMPILE ?= 1
 USE_52COMPAT   ?= 0
 
 #
@@ -25,75 +27,31 @@ VER_MINOR = 1
 VER_MICRO = 0
 VERSION   = $(VER_MAJOR).$(VER_MINOR).$(VER_MICRO)
 
-OBJ_DIR = objects
-
-export CL=
-
-define Usage
-
-  Usage: "make -f $(THIS_FILE) <CPU=x86|x64> CC=[cl | clang-cl] [all | clean | realclean | install]"
-  Specify CC=cl       - use MSVC
-  Specify CC=clang-cl - use clang-cl
-endef
-
-default: all
-
-ifeq ($(CPU),x64)
-  BITS = 64
+ifeq ($(USE_CRT_DEBUG),1)
+  CFLAGS += -MDd -Od -D_CRTDBG_MAP_ALLOC -FIcrtdbg.h
 else
-  BITS = 32
+  CFLAGS += -MD -O2
 endif
 
-MSVC_ROOT = $(realpath $(VCToolkitInstallDir))
-
-ifeq ($(CC),cl)
-  RCFLAGS = -D_MSC_VER
-  _CC     = $(MSVC_ROOT)/bin/HostX64/$(CPU)/cl.exe
-
-else ifeq ($(CC),clang-cl)
-  RCFLAGS = -D__clang__
-
-  #
-  # The 'clang-cl.bat' (on PATH) should look like this:
-  #   @echo off
-  #   setlocal
-  #   set CLANG_32=f:\ProgramFiler\LLVM-15-32bit  << install base of your 32-bit Clang
-  #   set CLANG_64=f:\ProgramFiler\LLVM-15-64bit  << ditto for 64-bit
-  #   set CL=
-  #   if %1. == -m32. (
-  #     shift
-  #     %CLANG_32%\bin\clang-cl.exe %*
-  #   ) else if %1. == -m64. (
-  #     shift
-  #     %CLANG_64%\bin\clang-cl.exe %*
-  #   ) else (
-  #     clang-cl.exe %*
-  #   )
-  #
-  _CC = clang-cl.bat -m$(BITS)
-
-else
-  $(error $(Usage))
-endif
-
-#
-# 'CFLAGS' common to all targets
-#
-CFLAGS = -I./src                   \
-         -I./dynasm                \
-         -I./$(OBJ_DIR)            \
-         -Fd./$(OBJ_DIR)/vc140.pdb \
-         -DLJ_ARCH_HASFPU=1        \
-         -DLUA_USE_ASSERT
+CFLAGS += -I./src                    \
+          -I./dynasm                 \
+          -I./$(OBJ_DIR)             \
+          -D_CRT_SECURE_NO_DEPRECATE \
+          -DLJ_ARCH_HASFPU=1         \
+          -DLUA_USE_ASSERT
 
 ifeq ($(CC),cl)
   CFLAGS += -wd4244 -wd5287
-else
-  CFLAGS += -Wno-unused-command-line-argument
 endif
 
 ifeq ($(USE_52COMPAT),1)
   CFLAGS += -DLUAJIT_ENABLE_LUA52COMPAT
+endif
+
+ifeq ($(CPU),x64)
+  CFLAGS += -arch:AVX2
+else
+  CFLAGS += -arch:SSE2
 endif
 
 #
@@ -108,52 +66,6 @@ else
   vm_FLAGS += -D SSE
   vm_CODE   = src/vm_x86.dasc
 endif
-
-#
-# Define libraries, .RC and .DLL names.
-#
-# Define path to 'cl' and libraries without the 'vcvarsall.bat' non-sense.
-#
-LJ_DLL       = bin/luajit-$(CPU).dll
-LJ_IMP_LIB   = lib/luajit-$(CPU).lib
-LJ_STAT_LIB  = lib/luajit_static-$(CPU).lib
-LJ_RC        = $(OBJ_DIR)/luajit-$(CPU).rc
-INSTALL_ROOT = $(realpath $(VSINSTALLDIR))
-
-CFLAGS += -nologo -MD -Zi -O2 -W3 -D_CRT_SECURE_NO_DEPRECATE
-
-ifeq ($(CPU),x64)
-  CFLAGS += -arch:AVX2
-else
-  CFLAGS += -arch:SSE2
-endif
-
-LDFLAGS = -nologo -debug -incremental:no \
-          -machine:$(CPU) -verbose       \
-          -nodefaultlib:oldnames.lib     \
-          -nodefaultlib:uuid.lib
-
-#
-# The path for the CRT libraries:
-#
-LDFLAGS += -libpath:$(MSVC_ROOT)/lib/$(CPU)
-
-#
-# 'WindowsKits' root is in '$(WindowsSdkDir)' and
-# 'WindowsKits' version is in '$(WindowsSdkVer)'.
-#
-# Hence the "User-Mode" Windows libraries for 'x86' are in:
-#   $(WindowsSdkDir)/Lib/$(WindowsSdkVer)/um/x86/
-#
-# Ditto for the Universal CRT libraries: for 'x86' the UCRT libs are in:
-#   $(WindowsSdkDir)/Lib/$(WindowsSdkVer)/ucrt/x86/
-#
-LDFLAGS += -libpath:$(realpath $(WindowsSdkDir))/Lib/$(WindowsSdkVer)/um/$(CPU) \
-           -libpath:$(realpath $(WindowsSdkDir))/Lib/$(WindowsSdkVer)/ucrt/$(CPU)
-
-
-c_to_obj = $(addprefix $(OBJ_DIR)/$(strip $(2)), \
-             $(notdir $(1:.c=.obj)))
 
 GENERATED = src/luajit.h
 
@@ -262,13 +174,13 @@ VM_OBJ      = $(call c_to_obj, $(VM_SRC),  static/)
 STATIC_OBJ  = $(call c_to_obj, $(ALL_SRC), static/)
 DYNAMIC_OBJ = $(call c_to_obj, $(ALL_SRC), dynamic/)
 
-TARGETS = $(LJ_DLL)      \
-          $(LJ_IMP_LIB)  \
-          $(LJ_STAT_LIB) \
+TARGETS = $(LJ_DLL)     \
+          $(LJ_IMP_LIB) \
+          $(LUAJIT_LIB) \
           bin/luajit.exe
 
 all:    $(GENERATED) $(TARGETS) epilogue
-static: $(GENERATED) $(LJ_STAT_LIB) bin/luajit.exe
+static: $(GENERATED) $(LUAJIT_LIB) bin/luajit.exe
 
 test: test_suite test_scimark test_life
 
@@ -302,9 +214,6 @@ test_life: bin/luajit.exe
 test_scimark: bin/luajit.exe
 	$(call green_msg, Running $(BRIGHT_WHITE)bin/luajit.exe tests/bench/scimark-2010-12-20.lua -large ...)
 	$(call run_test, tests/bench/scimark-2010-12-20.lua -large)
-
-bin lib $(OBJ_DIR) $(OBJ_DIR)/dynamic $(OBJ_DIR)/static:
-	mkdir --parents $@
 
 $(OBJ_DIR)/minilua.exe: $(OBJ_DIR)/static/minilua.obj
 	$(call link_EXE, $@, $^)
@@ -351,15 +260,15 @@ $(OBJ_DIR)/lj_recdef.h: $(OBJ_DIR)/buildvm.exe
 $(OBJ_DIR)/vmdef.lua: $(OBJ_DIR)/buildvm.exe
 	$(call run_buildvm, $@, vmdef, $(LJ_LIB_SRC))
 
-bin/luajit.exe: $(OBJ_DIR)/static/luajit.obj $(LJ_STAT_LIB) $(OBJ_DIR)/luajit.res | bin
+bin/luajit.exe: $(OBJ_DIR)/static/luajit.obj $(LUAJIT_LIB) $(OBJ_DIR)/luajit.res | bin
 	$(call link_EXE, $@, $^)
 
 $(LJ_IMP_LIB): $(LJ_DLL)
 
-$(LJ_DLL): $(DYNAMIC_OBJ) $(OBJ_DIR)/lj_vm.obj $(LJ_RC:.rc=.res) | bin lib
+$(LJ_DLL): $(DYNAMIC_OBJ) $(OBJ_DIR)/lj_vm.obj $(OBJ_DIR)/luajit-$(CPU).res | bin lib
 	$(call link_DLL, $@, $^, $(LJ_IMP_LIB))
 
-$(LJ_STAT_LIB): $(STATIC_OBJ) $(OBJ_DIR)/lj_vm.obj | lib
+$(LUAJIT_LIB): $(STATIC_OBJ) $(OBJ_DIR)/lj_vm.obj | lib
 	$(call create_static_lib, $@, $^)
 
 ifeq ($(CC)-$(USE_MP_COMPILE),cl-1)
@@ -376,27 +285,14 @@ $(OBJ_DIR)/dynamic/%.obj: %.c | $(CC).args $(OBJ_DIR)/dynamic
 $(OBJ_DIR)/static/%.obj: %.c | $(CC).args $(OBJ_DIR)/static
 	$(call C_compile, $@, $<)
 
-%.i: %.c FORCE $(GENERATED) $(OBJ_DIR)/cpp-filter.py
-	$(call C_preprocess, $@, $<)
-
-$(OBJ_DIR)/%.res: $(OBJ_DIR)/%.rc
-	$(call RC_compile, $@, $<)
-
-$(LJ_RC): $(THIS_FILE) | $(OBJ_DIR)
+$(OBJ_DIR)/luajit-$(CPU).rc: $(THIS_FILE) | $(OBJ_DIR)
 	$(call create_rc_file, $@, "LuaJIT; a Just-In-Time (JIT) compiler for the Lua programming language", VFT_DLL)
 
 $(OBJ_DIR)/luajit.rc: $(THIS_FILE) | $(OBJ_DIR)
 	$(call create_rc_file, $@, "The LuaJIT program", VFT_APP)
 
-$(CC).args: $(THIS_FILE)
-	$(call green_msg, All CFLAGS are in $(BRIGHT_WHITE)$@)
-	$(call create_resp_file, $@, -c $(CFLAGS))
-
-$(OBJ_DIR)/cpp-filter.py: $(THIS_FILE) | $(OBJ_DIR)
-	$(call generate_py,$@,$(CPP_FILTER_PY))
-
 clean: clean_msvcbuild
-	rm -f clang-cl.args cl.args link.args link.tmp lib.args src/luajit.h
+	rm -f clang-cl.args cl.args icx.args link.args link.tmp lib.args src/luajit.h
 	rm -fr $(OBJ_DIR)
 
 #
@@ -411,10 +307,9 @@ vclean realclean: clean
 	rm -fr bin lib
 
 install: all
-	cp --update $(LJ_IMP_LIB) $(LJ_STAT_LIB)                   $(INSTALL_ROOT)/lib
-	cp --update $(LJ_DLL:.dll=.{dll,pdb}) bin/luajit.{exe,pdb} $(INSTALL_ROOT)/bin
-
-FORCE:
+	$(call copy_file, $(LJ_IMP_LIB)       $(LUAJIT_LIB),  $(INSTALL_ROOT)/lib/)
+	$(call copy_file, $(LJ_DLL)           bin/luajit.exe, $(INSTALL_ROOT)/bin/)
+	$(call copy_file, $(LJ_DLL:.dll=.pdb) bin/luajit.pdb, $(INSTALL_ROOT)/bin/)
 
 #
 # Fixed dependencies:
@@ -436,39 +331,8 @@ $(addprefix $(OBJ_DIR)/, \
 
 
 #
-# The following assumes you have MSys/Cygwin's echo with colour support.
+# Local GNU-make macros
 #
-BRIGHT_GREEN = \e[1;32m
-BRIGHT_WHITE = \e[1;37m
-
-colour_msg  = @echo -e "$(1)\e[0m"
-green_msg   = $(call colour_msg,$(BRIGHT_GREEN)$(strip $(1)))
-gen_to_from = $(call green_msg, Generating $(BRIGHT_WHITE)$(strip $(1)) $(BRIGHT_GREEN)from $(BRIGHT_WHITE)$(strip $(2)))
-
-define Warning
-  $(1)
-  $(1) DO NOT EDIT! This file was automatically generated
-  $(1) from $(realpath $(THIS_FILE)) at $(TODAY).
-  $(1) Edit that file instead.
-  $(1)
-endef
-
-define generate
-  $(call green_msg, Generating $(BRIGHT_WHITE)$(strip $(1)))
-  $(file > $(1),$(call Warning,$(2)))
-endef
-
-define generate_py
-  $(call generate, $(1), #)
-  $(file >> $(1),if 1:)
-  $(file >> $(1),$(2))
-endef
-
-define create_resp_file
-  $(file > $(1))
-  $(foreach f, $(2), $(file >> $(1),$(strip $(f))) )
-endef
-
 define run_test
   bin/luajit.exe $(1)
   @echo
@@ -477,68 +341,6 @@ endef
 define run_buildvm
   $(call green_msg, Generating VM definition file $(BRIGHT_WHITE)$(strip $(1)))
   $(OBJ_DIR)/buildvm.exe $(strip -m $(2) -o $(1) $(3))
-  @echo
-endef
-
-ifeq ($(USE_ASTYLE),1)
-  pp_filter  = | astyle
-  pp_comment = The preprocessed and AStyled output of '$(strip $(1))':
-else
-  pp_filter =
-  pp_comment = The raw preprocessed output of '$(strip $(1))':
-endif
-
-CPP_CMD = $(_CC) -E
-
-define C_preprocess
-  $(file  > $(1),/* $(call pp_comment, $(2)))
-  $(file >> $(1), * $(CPP_CMD))
-  @$(foreach f, $(CFLAGS), $(file >> $(1), * $(f)))
-  $(file >> $(1), *---------------------------------------------------------)
-  $(file >> $(1), */)
-  $(CPP_CMD) @$(CC).args $(2) | $(PYTHON) $(OBJ_DIR)/cpp-filter.py $(pp_filter) >> $(1)
-endef
-
-define C_compile
-  $(_CC) -Fo./$(strip $(1) @$(CC).args $(2))
-  @echo
-endef
-
-define C_compile_MP
-  $(call green_msg, Compiling $(words $(filter %.c, $(2))) files for $(BRIGHT_WHITE)$(strip $(3)))
-  $(call C_compile, $(1), -MP $(2))
-endef
-
-define RC_compile
-  rc -nologo $(RCFLAGS) -fo $(1) $(2)
-  @echo
-endef
-
-define link_EXE
-  $(call green_msg, Linking $(BRIGHT_WHITE)$(strip $(1)))
-  $(file  > $(OBJ_DIR)/check-for-unused-libs.py,if 1:)
-  $(file >> $(OBJ_DIR)/check-for-unused-libs.py,$(CHECK_FOR_UNUSED_LIBS_PY))
-  $(call create_resp_file, link.args, $(LDFLAGS) $(2))
-  link -out:$(strip $(1)) @link.args > link.tmp
-  @rm -f $(1:.exe=.exp) $(1:.exe=.lib)
-  @$(PYTHON) $(OBJ_DIR)/check-for-unused-libs.py link.tmp
-endef
-
-define link_DLL
-  $(call green_msg, Linking $(BRIGHT_WHITE)$(strip $(1)))
-  $(file  > $(OBJ_DIR)/check-for-unused-libs.py,if 1:)
-  $(file >> $(OBJ_DIR)/check-for-unused-libs.py,$(CHECK_FOR_UNUSED_LIBS_PY))
-  $(call create_resp_file, link.args, -dll $(LDFLAGS) -implib:$(strip $(3)) $(2))
-  link -out:$(strip $(1)) @link.args > link.tmp
-  @rm -f $(3:.lib=.exp)
-  @$(PYTHON) $(OBJ_DIR)/check-for-unused-libs.py link.tmp
-endef
-
-define create_static_lib
-  $(call green_msg, Creating static library $(BRIGHT_WHITE)$(strip $(1)))
-  $(call create_resp_file, lib.args, $(2))
-  @rm -f $(1)
-  lib -nologo -out:$(strip $(1)) -machine:$(CPU) @lib.args
   @echo
 endef
 
@@ -581,6 +383,8 @@ define RC_COMMON
 
   #if defined(__clang__)
     #define RC_COMPILER  "Clang"
+  #elif defined(__INTEL_LLVM_COMPILER)
+    #define RC_COMPILER  "ICX"
   #elif defined(_MSC_VER)
     #define RC_COMPILER  "MSVC"
   #else
@@ -622,77 +426,3 @@ define RC_COMMON
   END
 endef
 
-define CPP_FILTER_PY
-  import sys, os
-
-  empty_lines = 0
-  while True:
-    line = sys.stdin.readline()
-    if not line:
-       break
-    line = line.rstrip()
-    if line == "":
-       empty_lines += 1
-       continue
-    if line.startswith("#line") or line.startswith("# "):
-       line = line.replace (r"\\", "/")
-
-    print (line)
-    if line == "}" or line == "};":
-       print ("")
-
-  print ("Removed %d empty lines." % empty_lines, file=sys.stderr)
-endef
-
-define CHECK_FOR_UNUSED_LIBS_PY
-  import os, sys
-
-  map_file    = sys.argv[1]
-  ignore_libs = [ "oldnames.lib" ]
-
-  class State():
-    IDLE   = 0
-    UNUSED = 1
-
-  class Colour():
-    RED = WHITE = RESET = ""
-
-  try:
-    import colorama
-    colorama.init()
-    Colour.RED   = colorama.Fore.RED   + colorama.Style.BRIGHT
-    Colour.WHITE = colorama.Fore.WHITE + colorama.Style.BRIGHT
-    Colour.RESET = colorama.Style.RESET_ALL
-  except:
-    pass
-
-  def cprint (color, s):
-    print ("%s%s%s" % (color, s, Colour.RESET))
-
-  def report (unused):
-    num = len(unused)
-    if num > 0:
-       cprint (Colour.RED, "%d unused %s in %s:" % (num, ["library", "libraries"][num > 1], map_file))
-       for u in unused:
-           print ("  " + u)
-    cprint (Colour.WHITE, "Done.\n")
-
-  def process_map (state):
-    unused_libs = []
-    f = open (map_file, "rt")
-    lines = f.readlines()
-    f.close()
-    for l in lines:
-      l = l.strip()
-      if l == "Unused libraries:":
-         state = State.UNUSED
-         continue
-      if state == State.UNUSED:
-         if l == "":
-            break
-         if os.path.basename (l).lower() not in ignore_libs:
-            unused_libs.append (l)
-    return unused_libs
-
-  report (process_map(State.IDLE))
-endef

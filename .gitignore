@@ -10,10 +10,9 @@ t
 *.obj
 *.BIN
 src/enum_proto.*
-src/.depend.*
 src/Debug/*
-src/MSVC_obj/*
-src/MSVC_obj_x64/*
+src/MSVC_obj-x86/*
+src/MSVC_obj-x64/*
 src/rcp/*
 src/test/*
 src/geoip-gen*.c
@@ -39,7 +38,6 @@ ws_trace.hnd-journal
 doc/wsock_trace.chw
 doc/doxygen.log
 doc/output/
-Makefile.Windows
 fw-test-*.bat
 AFUnix-issue.c
 cl-lshift.txt

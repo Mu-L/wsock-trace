@@ -3,83 +3,9 @@
 #
 # By <gvanem@yahoo.no> 2018 - 2025.
 #
-DATE      := $(shell date +%d-%B-%Y)
-PYTHON    := py -3
-comma     := ,
-THIS_FILE := Makefile.Windows
-MAKEFLAGS += --warn-undefined-variables
+TOP_DIR = .
 
-#
-# Roots and options. Change to suite.
-#
-MSVC_ROOT     := $(realpath $(VCToolkitInstallDir))
-VC_ROOT       := $(realpath $(VSINSTALLDIR))
-WX_ROOT       := $(realpath $(WXWIDGETS))
-CLANG32_ROOT  := $(realpath $(CLANG_32))
-CLANG64_ROOT  := $(realpath $(CLANG_64))
-
-LIBLOC_ROOT   := ./Geo-IP/IPFire/src
-LUAJIT_ROOT   := ./LuaJIT
-LWIP_ROOT     ?= f:/MinGW32/src/inet/lwip
-MONGOOSE_ROOT ?= f:/MinGW32/src/inet/Web/Mongoose
-PCAP_ROOT     ?= f:/MinGW32/src/inet/libpcap
-
-USE_ASAN       ?= 0
-USE_ASTYLE     ?= 1
-USE_PP_DEBUG   ?= 1
-USE_UBSAN      ?= 0
-USE_CRT_DEBUG  ?= 0
-USE_CRT_STATIC ?= 0
-USE_LUAJIT     ?= 0
-USE_LWIP       ?= 0
-USE_MONGOOSE   ?= 0
-USE_MP_COMPILE ?= 1
-
-define Usage
-
-  Usage: "$(MAKE) -f $(THIS_FILE) <CPU=x86|x64|arm|arm64> CC=[cl | clang-cl | icx] [all | clean | realclean | install]"
-  Specify CC=cl       - use MSVC
-  Specify CC=clang-cl - use clang-cl
-  Specify CC=icx      - use Intel's ICX
-endef
-
-ifeq ($(CC),icx)
-  #
-  # Force using 'x64' since that's the only Intel compiler I have
-  #
-  CPU = x64
-  _CC = $(call path_find, icx.exe)
-endif
-
-#
-# If '$(CPU)' was not specified on make's command-line, use whatever value
-# the '%CPU' is set to.
-#
-ifeq ($(CPU),x64)
-  IS_ARM = 0
-  BITS   = 64
-
-else ifeq ($(CPU),x86)
-  IS_ARM = 0
-  BITS   = 32
-
-else ifeq ($(CPU),arm)
-  IS_ARM = 1
-  BITS   = 32
-
-else ifeq ($(CPU),arm64)
-  IS_ARM = 1
-  BITS   = 64
-
-else
-  $(error Unsupported CPU=$(CPU))
-endif
-
-ifeq ($(USE_CRT_DEBUG),1)
- _D = _d
-else
- _D =
-endif
+include $(TOP_DIR)/Common.Windows
 
 #
 # What to build:
@@ -87,111 +13,35 @@ endif
 WSOCK_DLL = wsock_trace$(_D)-$(CPU).dll
 WSOCK_LIB = wsock_trace$(_D)-$(CPU).lib
 
-#
-# CFLAGS, LDFLAGS and RCFLAGS common for all source-files:
-#
-CFLAGS  = -nologo -W3 -D_CRT_SECURE_NO_WARNINGS -D_WINSOCK_DEPRECATED_NO_WARNINGS -Oy- # -GF
-LDFLAGS = -nologo -subsystem:console -verbose -incremental:no -debug -machine:$(CPU)   # -nxcompat:no
-RCFLAGS = -nologo -DBITNESS=$(BITS)
+CFLAGS  += -D_CRT_SECURE_NO_WARNINGS -D_WINSOCK_DEPRECATED_NO_WARNINGS -Oy-
 
 CFLAGS += -D_WIN32_WINNT=0x0600 \
           -DWIN32_LEAN_AND_MEAN \
-          -Z7 -Oi               \
+          -DUSE_PythonHook=0    \
+          -Oi                   \
           -I.                   \
           -I./mhook             \
           -I$(LIBLOC_ROOT)      \
-          -DBUILD_DATE=\"$(DATE)\"
+          -DBUILD_DATE=\"$(TODAY)\"
 
-CFLAGS += -DUSE_PythonHook=0
-
-export CL=
-
-c_to_obj = $(addprefix $(OBJ_DIR)/, \
-             $(notdir $(1:.c=.obj)))
-
-VCVARS_VER ?=
-
-ifeq ($(CC),clang-cl)
-  #
-  # clang-cl specifics:
-  #
-  ifeq ($(CPU),x64)
-    _CC = $(CLANG64_ROOT)/bin/clang-cl.exe
-  else
-    _CC = $(CLANG32_ROOT)/bin/clang-cl.exe
-  endif
-
-  CRT_DIR = $(MSVC_ROOT)/lib/$(CPU)
-
-  CFLAGS += -fms-compatibility           \
-            -ferror-limit=5              \
-            -Wno-pragma-pack             \
+#
+# Extra CFLAGS for 'clang-cl' and 'icx':
+#
+ifneq ($(CC),cl)
+  CFLAGS += -Wno-pragma-pack             \
             -Wno-missing-braces          \
             -Wno-unused-function         \
             -Wno-invalid-source-encoding \
             -Wno-unused-command-line-argument
-
-else ifeq ($(CC),cl)
-  #
-  # MSVC specifics:
-  #
-  ifeq ($(VCVARS_VER),110)
-    #
-    # For Visual-Studio 2013 (32-bit only):
-    #
-    MSVC_ROOT = $(realpath $(VC_OLD_ROOT))
-    CRT_DIR   = $(MSVC_ROOT)/lib
-    _CC       = $(MSVC_ROOT)/bin/cl.exe
-    CFLAGS   += -Dinline=__inline
-  else
-    #
-    # For Visual-Studio 2017+:
-    # The first 'link.exe' found on PATH is assumed to work for all CPUs
-    #
-    _CC     = $(MSVC_ROOT)/bin/HostX64/$(CPU)/cl.exe
-    CRT_DIR = $(MSVC_ROOT)/lib/$(CPU)
-  endif
-
-else ifeq ($(CC),icx)
-  #
-  # Intel ICX specifics (it is LLVM based. So very similar to 'clang-cl'):
-  #
-  CRT_DIR = $(MSVC_ROOT)/lib/$(CPU)
-
-  CFLAGS += -fms-compatibility   \
-            -ferror-limit=5      \
-            -Wno-pragma-pack     \
-            -Wno-missing-braces  \
-            -Wno-unused-function \
-            -Wno-invalid-source-encoding
-
-else
-  $(error $(Usage))
 endif
+
+#
+# External + OS libraries needed
+#
+EX_LIBS =
+OS_LIBS = advapi32.lib dnsapi.lib ole32.lib
 
 default: all
-
-#
-# Some checks for required tools
-#
-path_find  = $(word 1, $(wildcard $(addsuffix /$(strip $(1)),$(subst ;, ,$(subst \,/,$(PATH))))))
-file_exist = $(wildcard $(1))
-
-ifeq ($(call file_exist,$(_CC)),)
-  check_compiler:
-	$(error "$(_CC)" not found. Edit $(THIS_FILE) manually.)
-else
-  check_compiler:
-	$(call green_msg, Assuming $(_CC) is okay for $(BITS)-bit.)
-endif
-
-ifeq ($(CC)-$(USE_UBSAN),cl-1)
-  check_ubsan:
-	$(error 'USE_UBSAN' is not for 'cl')
-else
-  check_ubsan:
-	$(info Building with 'USE_UBSAN=1')
-endif
 
 WSOCK_SRC = asn.c             \
             common.c          \
@@ -244,23 +94,24 @@ LIBLOC_SRC = $(addprefix $(LIBLOC_ROOT)/, \
                win_str.c                  \
                win_mmap.c)
 
-WSOCK_OBJ   = $(call c_to_obj, $(WSOCK_SRC))
-WS_TOOL_OBJ = $(call c_to_obj, $(WS_TOOL_SRC))
-LIBLOC_OBJ  = $(call c_to_obj, $(LIBLOC_SRC))
-
+WSOCK_OBJ   = $(call c_to_obj, $(WSOCK_SRC),)
+WS_TOOL_OBJ = $(call c_to_obj, $(WS_TOOL_SRC),)
+LIBLOC_OBJ  = $(call c_to_obj, $(LIBLOC_SRC),)
 
 #
-# For '../misc-stuff/wx-stkwalk.cpp' and 'wx-stkwalk.exe' only:
+# Extra C++ flags for '../misc-stuff/wx-stkwalk.cpp':
 #
-wxCFLAGS = -EHsc                       \
-           -DUNICODE                   \
+wxCFLAGS = -DUNICODE                   \
            -D_UNICODE                  \
            -DwxMONOLITHIC=1            \
            -DWXWIN_COMPATIBILITY_3_2=1 \
            -I$(WX_ROOT)/include        \
            -I$(WX_ROOT)/include/msvc
 
-ifeq ($(CC),clang-cl)
+ifneq ($(CC),cl)
+  #
+  # For 'clang-cl' + 'icx'
+  #
   wxCFLAGS += -Wno-c++98-compat \
               -Wno-old-style-cast
 endif
@@ -270,8 +121,6 @@ ifeq ($(CPU),x64)
 else
   WX_LIB_DIR = $(WX_ROOT)/lib/vc_lib
 endif
-
-WX_EX_LIBS = advapi32.lib ole32.lib uuid.lib
 
 wxLDFLAGS = -libpath:$(WX_LIB_DIR)     \
             -nodefaultlib:dnsapi.lib   \
@@ -295,54 +144,6 @@ ifeq ($(USE_UBSAN),1)
   CFLAGS  += -DUSE_UBSAN -fsanitize=undefined
 endif
 
-ifeq ($(CC),clang-cl)
-  RCFLAGS += -D__clang__
-else
-  RCFLAGS += -D_MSC_VER
-endif
-
-ifeq ($(CPU),arm)
-  RCFLAGS += -D_ARM
-else ifeq ($(CPU),arm64)
-  RCFLAGS += -D_ARM64
-endif
-
-#
-# The path for the CRT library (msvcrt.lib):
-#
-LDFLAGS += -libpath:$(CRT_DIR)
-
-#
-# Ignore some .lib-files pulled in by default:
-# Except these are needed in 'wx-stkwalk.exe' only.
-#
-LDFLAGS += -nodefaultlib:oldnames.lib -nodefaultlib:uuid.lib
-
-ifeq ($(IS_ARM),1)
-  LDFLAGS += -nodefaultlib:runtimeobject.lib
-endif
-
-#
-# 'WindowsKits' root is in $(WindowsSdkDir) and
-# 'WindowsKits' version is in $(WindowsSdkVer).
-#
-# Hence the "User-Mode" Windows libraries for 'x86' are in:
-#   $(WindowsSdkDir)/Lib/$(WindowsSdkVer)/um/x86/
-#
-# Ditto for the Universal CRT libraries: for 'x86' the UCRT libs are in:
-#   $(WindowsSdkDir)/Lib/$(WindowsSdkVer)/ucrt/x86/
-#
-WK_DIR_1 = $(realpath $(WindowsSdkDir)/Lib/$(WindowsSdkVer)/um/$(CPU))
-WK_DIR_2 = $(realpath $(WindowsSdkDir)/Lib/$(WindowsSdkVer)/ucrt/$(CPU))
-
-#
-# Just for preprocessing some UCRT .cpp-files:
-#
-UCRT_SRC_ROOT  = $(realpath $(WindowsSdkDir))/Source/$(WindowsSdkVer)/ucrt
-VCRUNTIME_ROOT = $(MSVC_ROOT)/crt/src/vcruntime
-
-LDFLAGS += -libpath:$(WK_DIR_1) -libpath:$(WK_DIR_2)
-
 ifeq ($(USE_CRT_STATIC),1)
   MD = -MT
 else
@@ -356,14 +157,11 @@ else
   CFLAGS += $(MD) -Ot -GS-
 endif
 
-OBJ_DIR = objects
-
-EX_LIBS += ole32.lib advapi32.lib
-
 TARGETS = $(WSOCK_DLL) $(WSOCK_LIB)
 
 ifeq ($(USE_LUAJIT),1)
-  CFLAGS += -DUSE_LUAJIT -I$(LUAJIT_ROOT)/src
+  CFLAGS += -DUSE_LUAJIT \
+            -I$(LUAJIT_ROOT)/src
 
   #
   # Fake these for LuaJIT
@@ -373,8 +171,6 @@ ifeq ($(USE_LUAJIT),1)
   else ifeq ($(CPU),arm64)
     CFLAGS += -D__aarch64__
   endif
-
-  LUAJIT_LIB = $(LUAJIT_ROOT)/lib/luajit_static-$(CPU).lib
 else
   LUAJIT_LIB =
 endif
@@ -403,15 +199,17 @@ else ifeq ($(USE_MONGOOSE),1)
   #
   CFLAGS += -DUSE_MIP \
             -I$(MONGOOSE_ROOT)
+
   WSOCK_SRC += wsock_trace_mongoose.c
 
   EX_LIBS += $(PCAP_ROOT)/lib/wpcap_static-$(CPU).lib
 endif
 
 LIBLOC_LIB = libloc$(_D)-$(CPU).lib
-EX_LIBS   += dnsapi.lib
 
 PROGRAMS = vg-test.exe ws_tool.exe # mhook-test.exe get-volumes.exe wx-stkwalk.exe
+
+.PHONY: check_compiler check_ubsan touch_common_c
 
 all: check_compiler check_ubsan touch_common_c $(LUAJIT_LIB) $(TARGETS) $(PROGRAMS) epilogue
 
@@ -419,13 +217,10 @@ epilogue:
 	$(call green_msg, Welcome to wsock_trace $(BRIGHT_WHITE)(CC=$(CC), $(BITS)-bits), USE_CRT_DEBUG=$(USE_CRT_DEBUG).)
 	$(call green_msg, Do a $(BRIGHT_WHITE)make CC=$(CC) -f $(THIS_FILE) install$(BRIGHT_GREEN) at own risk.)
 
-$(OBJ_DIR):
-	- mkdir $@ 2> /dev/null
-
 install: all
-	- $(call copy_file, $(WSOCK_LIB),                 $(VC_ROOT)/lib)
-	- $(call copy_file, $(WSOCK_DLL:.dll=.{dll,pdb}), $(VC_ROOT)/bin)
-	  $(call copy_file, ws_tool.{exe$(comma)pdb},     $(VC_ROOT)/bin)
+	$(call copy_file, $(WSOCK_LIB),                 $(INSTALL_ROOT)/lib)
+	$(call copy_file, $(WSOCK_DLL:.dll=.{dll,pdb}), $(INSTALL_ROOT)/bin)
+	$(call copy_file, ws_tool.{exe$(COMMA)pdb},     $(INSTALL_ROOT)/bin)
 
 #
 # Ensure this startup message is correct:
@@ -440,7 +235,7 @@ GET_BUILD_DATE = $(shell cat ./$(OBJ_DIR)/build_date)
 touch_common_c: | $(OBJ_DIR)
 ifeq ($(GET_BUILD_DATE),)
 	touch common.c
-	@echo '$(DATE)' > ./$(OBJ_DIR)/build_date
+	@echo '$(TODAY)' > ./$(OBJ_DIR)/build_date
 else
 	$(call green_msg, Date on $(BRIGHT_WHITE)common.c $(BRIGHT_GREEN)is up-to-date.)
 endif
@@ -528,8 +323,8 @@ $(OBJ_DIR)/wsock_trace_d-x86.def: wsock_trace-x86.def $(THIS_FILE) | $(OBJ_DIR)
 	@echo
 
 $(WSOCK_LIB): $(WSOCK_DLL)
-$(WSOCK_DLL): EX_LIBS += winmm.lib
-ws_tool.exe:  EX_LIBS += winmm.lib
+$(WSOCK_DLL): OS_LIBS += winmm.lib
+ws_tool.exe:  OS_LIBS += winmm.lib
 
 #
 # The '$(WSOCK_LIB)' is an import-lib for '$(WSOCK_DLL)'.
@@ -543,10 +338,12 @@ $(WSOCK_DLL):                       \
   $(OBJ_DIR)/non-export.obj         \
   $(OBJ_DIR)/wsock_trace.res        \
   $(LUAJIT_LIB)                     \
-  $(LIBLOC_LIB)
-	$(call link_DLL, $@, -def:$< $(WSOCK_OBJ) $(OBJ_DIR)/wsock_trace.res $(LUAJIT_LIB) $(LIBLOC_LIB) $(EX_LIBS), \
+  $(LIBLOC_LIB)                     \
+  $(EX_LIBS)
+	$(call link_DLL, $@, -def:$< $(WSOCK_OBJ) $(OBJ_DIR)/wsock_trace.res \
+	                 $(LUAJIT_LIB) $(LIBLOC_LIB) $(EX_LIBS) $(OS_LIBS),  \
 	                 $(WSOCK_LIB))
-	lib -nologo $(WSOCK_LIB) $(OBJ_DIR)/non-export.obj
+	lib -nologo -machine:$(CPU) $(WSOCK_LIB) $(OBJ_DIR)/non-export.obj
 
 #
 # Experiment:
@@ -554,7 +351,7 @@ $(WSOCK_DLL):                       \
 #   Check if it breaks an application too.
 #
 ifeq ($(CC)-$(USE_CRT_DEBUG),cl-0)
-  $(OBJ_DIR)/test.obj: CFLAGS += -Ox
+  $(OBJ_DIR)/test.obj: EXTRA_CFLAGS = -Ox
 endif
 
 vg-test.exe: $(OBJ_DIR)/vg-test.obj $(WSOCK_LIB)
@@ -563,8 +360,8 @@ vg-test.exe: $(OBJ_DIR)/vg-test.obj $(WSOCK_LIB)
 #
 # The 'winmm.lib' library could be needed for the 'sndPlaySound()' function.
 #
-ws_tool.exe: $(WS_TOOL_OBJ) $(OBJ_DIR)/ws_tool.res $(LIBLOC_LIB) $(LUAJIT_LIB)
-	$(call link_EXE, $@, $^ $(EX_LIBS))
+ws_tool.exe: $(WS_TOOL_OBJ) $(OBJ_DIR)/ws_tool.res $(LIBLOC_LIB) $(LUAJIT_LIB) $(EX_LIBS)
+	$(call link_EXE, $@, $^ $(OS_LIBS))
 
 #
 # Needs the dynamic (-MD) compiled version of the 'wxWidget' libraries.
@@ -574,11 +371,11 @@ ifeq ($(USE_CRT_STATIC),1)
 	$(call green_msg, $@ needs $(BRIGHT_WHITE)USE_CRT_STATIC=0)
 else
   wx-stkwalk.exe: $(OBJ_DIR)/wx-stkwalk.obj
-	$(call link_EXE, $@, $^ $(wxLDFLAGS) $(WX_EX_LIBS))
+	$(call link_EXE, $@, $^ $(wxLDFLAGS) advapi32.lib ole32.lib uuid.lib)
 endif
 
 $(OBJ_DIR)/wx-stkwalk.obj: ../misc-stuff/wx-stkwalk.cpp | $(CC).args $(OBJ_DIR)
-	$(call CPP_compile, $@, $<)
+	$(call CPP_compile, $@, $(wxCFLAGS) $<)
 
 LIBLOC_CFLAGS = -I$(LIBLOC_ROOT)/fake-OpenSSL   \
                 -I$(LIBLOC_ROOT)/libloc/windows \
@@ -620,34 +417,18 @@ else
 	$(call C_compile, $@, $(LIBLOC_CFLAGS) $<)
 endif
 
-$(OBJ_DIR)/%.obj: %.c | $(CC).args $(OBJ_DIR)
-	$(call C_compile, $@, $<)
-
-$(OBJ_DIR)/%.res: %.rc | $(OBJ_DIR)
-	$(call create_res_file, $@, $<)
-
-$(CC).args: $(THIS_FILE)
-	$(call green_msg, All CFLAGS are in $(BRIGHT_WHITE)$@)
-	$(call create_resp_file, $@, -c $(CFLAGS))
-
 $(LIBLOC_LIB): $(LIBLOC_OBJ)
 	$(call create_static_lib, $@, $^)
 
 $(LUAJIT_LIB): FORCE
-ifeq ($(CC),icx)
-	$(error LuaJit with 'CC=icx' is not supported)
-else
 	$(call build_luajit, static)
-endif
 
 clean:
 	rm -fr $(OBJ_DIR) .vs
 	rm -f link.args cl.args clang-cl.args link.tmp vc1*.pdb
 	rm -f wsock_trace*.pdb $(PROGRAMS:.exe=.pdb) $(LIBLOC_LIB) $(LUAJIT_LIB) wx-stkwalk.exe.manifest
 	rm -f ip4-asn-test.* ../ipv6-unicast-address-assignments.csv.BIN
-ifneq ($(CC),icx)
 	$(call build_luajit, clean)
-endif
 
 realclean vclean: clean
 	rm -f $(TARGETS) $(PROGRAMS) wx-stkwalk.{exe,pdb} mhook-test.{exe,pdb}
@@ -661,239 +442,16 @@ csv-test-driver.i: $(OBJ_DIR)/csv-test-driver.c $(OBJ_DIR)/ip4-asn-test.h $(OBJ_
 %.i: mhook/%.c $(OBJ_DIR)/cpp-filter.py $(CC).args FORCE
 	$(call C_preprocess, $@, $(MHOOK_CFLAGS) $<)
 
-%.i: %.c $(CC).args $(OBJ_DIR)/cpp-filter.py FORCE
-	$(call C_preprocess, $@, $<)
-
-%.i: $(UCRT_SRC_ROOT)/*/%.cpp $(CC).args $(OBJ_DIR)/cpp-filter.py FORCE
-	$(call C_preprocess, $@, -I$(UCRT_SRC_ROOT)/inc -I$(VCRUNTIME_ROOT) $<)
-
-$(OBJ_DIR)/cpp-filter.py: $(THIS_FILE) | $(OBJ_DIR)
-	$(call generate_py,$@,$(cpp_filter_PY))
-
-FORCE:
-
 #
-# GNU-make macros.
-#
-# The following assumes you have MSys/Cygwin's echo with colour support.
-#
-BRIGHT_GREEN = \e[1;32m
-BRIGHT_WHITE = \e[1;37m
-
-colour_msg = @echo -e "$(1)\e[0m"
-green_msg  = $(call colour_msg,$(BRIGHT_GREEN)$(strip $(1)))
-
-define generate
-  $(call green_msg, Generating $(BRIGHT_WHITE)$(strip $(1)))
-  $(file > $(1),$(call Warning,$(2)))
-endef
-
-define generate_c
-  $(call generate, $(1),//)
-endef
-
-define generate_py
-  $(call generate, $(1),#)
-  $(file >> $(1),if 1:)
-  $(file >> $(1),$(2))
-endef
-
-define Warning
-  $(1)
-  $(1) DO NOT EDIT! This file was generated automatically
-  $(1) from $(realpath $<). Edit that file instead.
-  $(1)
-endef
-
-define C_compile
-  $(_CC) -Fo./$(strip $(1) @$(CC).args $(2))
-  @echo
-endef
-
-define C_compile_MP
-  $(call green_msg, Compiling $(words $(filter %.c, $(2))) files for $(BRIGHT_WHITE)$(strip $(3)))
-  $(call C_compile, $(1), -MP $(2))
-endef
-
-define CPP_compile
-  $(_CC) -Fo./$(strip $(1) @$(CC).args $(wxCFLAGS) $(2))
-  @echo
-endef
-
-CPP_CMD = $(_CC) -E
-
-ifeq ($(USE_PP_DEBUG),1)
-  #
-  # '-d1PP': Retain macro definitions in /E mode
-  #
-  ifeq ($(CC),clang-cl)
-    CPP_CMD += -d1PP
-  endif
-  #
-  # '-PD': print all macro definitions
-  #
-  ifeq ($(CC),cl)
-    CPP_CMD += -PD -Zc:preprocessor
-  endif
-endif
-
-ifeq ($(USE_ASTYLE),1)
-  pp_filter  = | astyle
-  pp_comment = The preprocessed and AStyled output of '$(strip $(1))':
-else
-  pp_filter =
-  pp_comment = The raw preprocessed output of '$(strip $(1))':
-endif
-
-#
-# Macro to generate a nicer C preprocessed output
-# with the help of '$(OBJ_DIR)/cpp-filter.py' and optionally 'Astyle'.
-#
-define C_preprocess
-  $(file  > $(1),/* $(call pp_comment, $(2)))
-  $(file >> $(1), * $(CC) -E)
-  @$(foreach f, $(CFLAGS), $(file >> $(1), * $(f)))
-  $(file >> $(1), */)
-  $(CPP_CMD) @$(CC).args $(2) | $(PYTHON) $(OBJ_DIR)/cpp-filter.py $(pp_filter) >> $(1)
-  @echo
-endef
-
-define link_EXE
-  $(call green_msg, Linking $(BRIGHT_WHITE)$(strip $(1)))
-  $(file  > $(OBJ_DIR)/check-for-unused-libs.py,if 1:)
-  $(file >> $(OBJ_DIR)/check-for-unused-libs.py,$(check_for_unused_libraries_PY))
-  $(call create_resp_file, link.args, $(LDFLAGS) $(2))
-  link -out:$(strip $(1)) @link.args > link.tmp
-  @rm -f $(1:.exe=.exp) $(1:.exe=.lib)
-  @$(PYTHON) $(OBJ_DIR)/check-for-unused-libs.py link.tmp
-endef
-
-define link_DLL
-  $(call green_msg, Linking $(BRIGHT_WHITE)$(strip $(1)))
-  $(file  > $(OBJ_DIR)/check-for-unused-libs.py,if 1:)
-  $(file >> $(OBJ_DIR)/check-for-unused-libs.py,$(check_for_unused_libraries_PY))
-  $(call create_resp_file, link.args, -dll $(LDFLAGS) -implib:$(strip $(3)) $(2))
-  link -out:$(strip $(1)) @link.args > link.tmp
-  @rm -f $(3:.lib=.exp)
-  @$(PYTHON) $(OBJ_DIR)/check-for-unused-libs.py link.tmp
-endef
-
-define create_res_file
-  rc $(RCFLAGS) -fo $(1) $(2)
-  @echo
-endef
-
-define create_static_lib
-  $(call green_msg, Creating static library $(BRIGHT_WHITE)$(strip $(1)))
-  lib -nologo -out:$(strip $(1)) -machine:$(CPU) $(2)
-  @echo
-endef
-
-define copy_file
-  cp --update $(strip $(1) $(2))
-  @echo
-endef
-
-define create_resp_file
-  $(file > $(1))
-  $(foreach f, $(2), $(file >> $(1),$(strip $(f))) )
-endef
-
+# More GNU-make macros.
 #
 # Enter '$(LUAJIT_ROOT)' to create '$(LUAJIT_LIB)'
 # Or do 'make clean' on it.
 #
 define build_luajit
   $(call green_msg, Building target $(BRIGHT_WHITE)$(strip $(1)) $(BRIGHT_GREEN)for LuaJIT ...)
-  $(MAKE) -C $(LUAJIT_ROOT) -f $(THIS_FILE) CC=$(CC) CPU=$(CPU) $(1)
+  $(MAKE) --directory $(LUAJIT_ROOT) -f $(THIS_FILE) CC=$(CC) CPU=$(CPU) $(1)
   @echo
-endef
-
-define cpp_filter_PY
-  import sys, os
-
-  empty_lines = 0
-  while True:
-    line = sys.stdin.readline()
-    if not line:
-       break
-    line = line.rstrip()
-    if line == "":
-       empty_lines += 1
-       continue
-
-    #
-    # MSVC or clang-cl 'line' directive
-    #
-    if line.startswith("#line") or line.startswith("# "):
-       line = line.replace (r"\\", "/")
-
-    print (line)
-
-    #
-    # Print a newline after a functions or structs
-    #
-    if line == "}" or line == "};":
-       print ("")
-
-  print ("Removed %d empty lines." % empty_lines, file=sys.stderr)
-endef
-
-define check_for_unused_libraries_PY
-  #
-  # Check for unused libraries in a MSVC link .map file.
-  # Prints with colours using 'colorama' (if available).
-  #
-  import os, sys
-
-  map_file    = sys.argv[1]
-  ignore_libs = [ ]
-
-  class State:
-    IDLE   = 0
-    UNUSED = 1
-
-  class Colour:
-    RED = WHITE = RESET = ""
-
-  try:
-    import colorama
-    colorama.init()
-    Colour.RED   = colorama.Fore.RED   + colorama.Style.BRIGHT
-    Colour.WHITE = colorama.Fore.WHITE + colorama.Style.BRIGHT
-    Colour.RESET = colorama.Style.RESET_ALL
-  except:
-    pass
-
-  def cprint (color, s):
-    print ("%s%s%s" % (color, s, Colour.RESET))
-
-  def report (unused):
-    num = len(unused)
-    if num > 0:
-       cprint (Colour.RED, "%d unused librar%s in %s:" % (num, ["y", "ies"][num > 1], map_file))
-       for u in unused:
-           print ("  " + u)
-    cprint (Colour.WHITE, "Done.\n")
-
-  def process_map (state):
-    unused_libs = []
-    f = open (map_file, "rt")
-    lines = f.readlines()
-    f.close()
-    for l in lines:
-      l = l.strip()
-      if l == "Unused libraries:":
-         state = State.UNUSED
-         continue
-      if state == State.UNUSED:
-         if l == "":
-            break
-         if os.path.basename (l).lower() not in ignore_libs:
-            unused_libs.append (l)
-    return unused_libs
-
-  report (process_map(State.IDLE))
 endef
 
 #
