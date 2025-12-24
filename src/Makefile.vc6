@@ -68,7 +68,7 @@ INSTALL_ROOT = $(VSINSTALLDIR)
 CC      = cl.exe
 CFLAGS  = -nologo $(CFLAGS) -I. -I$(LIBLOC_ROOT) -W3 -Zi \
           -DWIN32_LEAN_AND_MEAN -D_WIN32_WINNT=0x0600
-LDFLAGS = -nologo -map -debug -incremental:no -subsystem:console -verbose \
+LDFLAGS = -nologo -debug -incremental:no -subsystem:console -verbose \
           -machine:$(CPU) -nodefaultlib:oldnames.lib -nodefaultlib:uuid.lib
 
 OBJ_DIR = MSVC_obj-$(CPU)
@@ -202,7 +202,6 @@ $(WSOCK_TRACE_DLL) $(WSOCK_TRACE_LIB): $(OBJ_DIR)\wsock_trace$(_D)-$(CPU).def \
 	link.exe -dll $(LDFLAGS) -implib:$(WSOCK_TRACE_LIB) -out:$(WSOCK_TRACE_DLL) \
 	         -def:$(OBJ_DIR)\wsock_trace$(_D)-$(CPU).def $(WSOCK_TRACE_OBJ)     \
 	         $(OBJ_DIR)\wsock_trace.res $(EX_LIBS) > link.tmp
-	type link.tmp >> wsock_trace$(_D)-$(CPU).map
 	lib -nologo $(WSOCK_TRACE_LIB) $(NON_EXPORT_OBJ)
 	@del $(WSOCK_TRACE_LIB:.lib=.exp)
 
@@ -220,13 +219,11 @@ uninstall:
 
 ws_tool.exe: $(WS_TOOL_OBJ) $(WSOCK_DEP)
 	link.exe $(LDFLAGS) -out:$@ $** dnsapi.lib advapi32.lib ole32.lib winmm.lib > link.tmp
-	@type link.tmp >> ws_tool.map
 	@del ws_tool.lib ws_tool.exp
 	@echo
 
 mhook-test.exe: $(OBJ_DIR)\mhook-test.obj $(OBJ_DIR)\disasm.obj $(WSOCK_TRACE_LIB)
 	link.exe $(LDFLAGS) -out:$@ $** gdi32.lib kernel32.lib user32.lib > link.tmp
-	@type link.tmp >> mhook-test.map
 	@echo
 
 run_test: ws_tool.exe
@@ -255,10 +252,9 @@ clean:
 vclean realclean: clean
 	- del wsock_trace$(_D)-$(CPU).lib \
 	      wsock_trace$(_D)-$(CPU).dll \
-	      wsock_trace$(_D)-$(CPU).map \
 	      wsock_trace$(_D)-$(CPU).pdb
-	- del ws_tool.exe    ws_tool.map    ws_tool.pdb
-	- del mhook-test.exe mhook-test.map mhook-test.pdb
+	- del ws_tool.exe    ws_tool.pdb
+	- del mhook-test.exe mhook-test.pdb
 	- del $(LUAJIT_ROOT)\src\lua*.lib $(LUAJIT_ROOT)\lib\lua*.lib $(LUAJIT_ROOT)\src\luajit.h
 	- del $(LUAJIT_ROOT)\src\luajit_relver.txt
 
