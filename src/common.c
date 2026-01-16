@@ -2113,8 +2113,8 @@ const char *get_dll_full_name (void)
  * Returns the `.dll` basename.
  *
  * \retval
- *   "wsock_trace-x86.dll"  for 32-bit Visual-C / clang-cl
- *   "wsock_trace-x64.dll"  for 64-bit Visual-C / clang-cl
+ *   "wsock_trace-x86.dll"  for 32-bit Visual-C / clang-cl / icx
+ *   "wsock_trace-x64.dll"  for 64-bit Visual-C / clang-cl / icx
  *
  * And an extra `"_d"` after `"wsock_trace"` for a CRT-DEBUG version.
  *
