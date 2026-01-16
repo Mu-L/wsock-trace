@@ -66,6 +66,7 @@ EXPORTS
  _gethostbyaddr@12
  _gethostbyname@4
  _gethostname@8
+ _GetHostNameW@8
  _getnameinfo@28
  _getpeername@12
  _getprotobyname@4
@@ -157,7 +158,6 @@ EXPORTS
 ;   GetAddrInfoExCancel@4
 ;   GetAddrInfoExOverlappedResult@4
 ;   GetAddrInfoExW@40
-;   GetHostNameW@8
 ;   WPUGetProviderPathEx@20
 ;   WSAUnadvertiseProvider@4
 ;   WSCDeinstallProviderEx@12

@@ -190,6 +190,8 @@ DEF_FUNC (int, GetNameInfoW, (const SOCKADDR *sockaddr,
                               DWORD           serv_buf_size,
                               INT             flags));
 
+DEF_FUNC (int, GetHostNameW, (wchar_t *buf, int buf_len));
+
 DEF_FUNC (int, getaddrinfo, (const char            *host_name,
                              const char            *serv_name,
                              const struct addrinfo *hints,
@@ -509,6 +511,7 @@ static struct LoadTable dyn_funcs [] = {
               ADD_VALUE (0, "ws2_32.dll", gethostbyname),
               ADD_VALUE (0, "ws2_32.dll", gethostbyaddr),
               ADD_VALUE (0, "ws2_32.dll", gethostname),
+              ADD_VALUE (0, "ws2_32.dll", GetHostNameW),
               ADD_VALUE (0, "ws2_32.dll", htons),
               ADD_VALUE (0, "ws2_32.dll", ntohs),
               ADD_VALUE (0, "ws2_32.dll", htonl),
@@ -657,8 +660,8 @@ static __inline const char *uint_ptr_hexval (UINT_PTR val, char *buf)
 {
   int i, j;
 
-  buf[0] = '0';
-  buf[1] = 'x';
+  buf [0] = '0';
+  buf [1] = 'x';
   for (i = 0, j = 1+2*sizeof(val); i < 4*sizeof(val); i += 2, j--)
   {
     static const char hex_chars[] = "0123456789ABCDEF";
@@ -1613,15 +1616,15 @@ int WINAPI select (int nfds, fd_set *rd_fd, fd_set *wr_fd, fd_set *ex_fd, const 
     {
       sz = size_fd_set (rd_fd);
       if (sz)
-         rd_copy = copy_fd_set_to (rd_fd, alloca(sz));
+         rd_copy = copy_fd_set_to (alloca(sz), rd_fd);
 
       sz = size_fd_set (wr_fd);
       if (sz)
-         wr_copy = copy_fd_set_to (wr_fd, alloca(sz));
+         wr_copy = copy_fd_set_to (alloca(sz), wr_fd);
 
       sz = size_fd_set (ex_fd);
       if (sz)
-         ex_copy = copy_fd_set_to (ex_fd, alloca(sz));
+         ex_copy = copy_fd_set_to (alloca(sz), ex_fd);
     }
   }
 
@@ -1704,6 +1707,21 @@ int WINAPI gethostname (char *buf, int buf_len)
   ENTER_CRIT();
 
   WSTRACE ("gethostname (0x%p, %d) --> \"%.*s\", %s", buf, buf_len, buf_len, buf, get_error(rc, 0));
+
+  LEAVE_CRIT (!exclude_this);
+  return (rc);
+}
+
+int WINAPI GetHostNameW (wchar_t *buf, int buf_len)
+{
+  int rc;
+
+  CHECK_PTR (p_GetHostNameW);
+  rc = (*p_GetHostNameW) (buf, buf_len);
+
+  ENTER_CRIT();
+
+  WSTRACE ("GetHostNameW (0x%p, %d) --> \"%.*S\", %s", buf, buf_len, buf_len, buf, get_error(rc, 0));
 
   LEAVE_CRIT (!exclude_this);
   return (rc);
@@ -1965,18 +1983,12 @@ static void handle_recv_overlapped (SOCKET s, const WSAOVERLAPPED *ov, DWORD *si
 /**
  * Common data-dump for `WSARecv()` and `WSARecvFrom()`.
  */
-static void handle_recv_data (int rc, const WSABUF *bufs, const DWORD *num_bytes, DWORD size, struct sockaddr *from)
+static void handle_recv_data (int rc, const WSABUF *bufs, DWORD num_bufs, const struct sockaddr *from)
 {
   char *ov_trace = overlap_trace_buf();
 
   if (rc == NO_ERROR && g_cfg.dump_data)
-  {
-    WSABUF bufs2;
-
-    bufs2.buf = bufs->buf;
-    bufs2.len = num_bytes ? *num_bytes : size;
-    dump_wsabuf (&bufs2, 1);
-  }
+     dump_wsabuf (bufs, num_bufs);
 
   if (from && (*g_data.WSAGetLastError)() != WSA_IO_PENDING)
   {
@@ -2027,7 +2039,7 @@ int WINAPI WSARecv (SOCKET s, WSABUF *bufs, DWORD num_bufs, DWORD *num_bytes,
     WSTRACE ("WSARecv (%s, 0x%p, %lu, %s, <%s>, 0x%p, 0x%p) --> %s",
              socket_number(s), bufs, num_bufs, nbytes, flg, ov, func, res);
 
-    handle_recv_data (rc, bufs, num_bytes, size, NULL);
+    handle_recv_data (rc, bufs, num_bufs, NULL);
 
     if (ov)
        overlap_store (s, ov, size, true);
@@ -2078,7 +2090,7 @@ int WINAPI WSARecvFrom (SOCKET s, WSABUF *bufs, DWORD num_bufs, DWORD *num_bytes
              socket_number(s), bufs, num_bufs, nbytes, flg,
              INET_addr_sockaddr(from), ov, func, res);
 
-    handle_recv_data (rc, bufs, num_bytes, size, from);
+    handle_recv_data (rc, bufs, num_bufs, from);
 
     if (ov)
        overlap_store (s, ov, size, true);
@@ -2372,7 +2384,7 @@ int WINAPI WSAEnumNetworkEvents (SOCKET s, WSAEVENT ev, WSANETWORKEVENTS *events
  */
 int WINAPI WSAEnumProtocolsA (int *protocols, WSAPROTOCOL_INFOA *proto_info, DWORD *buf_len)
 {
-  char buf[50], *p = buf;
+  char buf [50], *p = buf;
   int  i, rc, do_it = (g_cfg.trace_level > 0 && g_cfg.dump_wsaprotocol_info);
 
   CHECK_PTR (p_WSAEnumProtocolsA);
@@ -2405,7 +2417,7 @@ int WINAPI WSAEnumProtocolsA (int *protocols, WSAPROTOCOL_INFOA *proto_info, DWO
 
 int WINAPI WSAEnumProtocolsW (int *protocols, WSAPROTOCOL_INFOW *proto_info, DWORD *buf_len)
 {
-  char buf[50], *p = buf;
+  char buf [50], *p = buf;
   int  i, rc, do_it = (g_cfg.trace_level > 0 && g_cfg.dump_wsaprotocol_info);
 
   CHECK_PTR (p_WSAEnumProtocolsW);
@@ -2603,7 +2615,7 @@ int WINAPI WSAPoll (LPWSAPOLLFD fd_array, ULONG fds, int timeout_ms)
 
   if (!exclude_this)
   {
-    char ms_buf[20];
+    char ms_buf [20];
 
     if (timeout_ms > 0)
          snprintf (ms_buf, sizeof(ms_buf), "%d ms", timeout_ms);
@@ -2681,8 +2693,8 @@ DWORD WINAPI WSAWaitForMultipleEvents (DWORD           num_ev,
 
   if (!exclude_this)
   {
-    char  buf[50];
-    char  time[20]  = "WSA_INFINITE";
+    char  buf [50];
+    char  time [20]  = "WSA_INFINITE";
     const char *err = "Unknown";
 
     if (rc == WSA_WAIT_FAILED)
@@ -3101,15 +3113,20 @@ int WINAPI getpeername (SOCKET s, struct sockaddr *name, int *name_len)
 
 int WINAPI getsockname (SOCKET s, struct sockaddr *name, int *name_len)
 {
-  int rc;
+  int         rc;
+  const char *sa;
 
   CHECK_PTR (p_getsockname);
   rc = (*p_getsockname) (s, name, name_len);
 
   ENTER_CRIT();
 
+  if (rc == 0)
+       sa = INET_addr_sockaddr (name);
+  else sa = "N/A";
+
   WSTRACE ("getsockname (%s, %s) --> %s",
-           socket_number(s), INET_addr_sockaddr(name), get_error(rc, 0));
+           socket_number(s), sa, get_error(rc, 0));
 
   if (!exclude_this)
   {
