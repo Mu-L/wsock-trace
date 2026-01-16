@@ -16,7 +16,7 @@
 #define RC_VERSION  0,3,8,0
 #define RC_VER_STR "0.3.8"
 
-#if defined(__INTEL_CLANG_COMPILER)
+#if defined(__INTEL_LLVM_COMPILER)
   #define RC_BUILDER  "Intel oneAPI"
   #define RC_BASENAME "wsock_trace"
 
@@ -33,7 +33,7 @@
   #define RC_BASENAME "??"
 #endif
 
-#if defined(DEBUG) && (DEBUG > 0)
+#if defined(_DEBUG) && (_DEBUG > 0)
   #define RC_DBG_REL     "debug"
   #define RC_DBG_SUFFIX  "_d"
   #define FILE_FLG       1
