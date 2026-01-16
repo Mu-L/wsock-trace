@@ -1886,12 +1886,10 @@ void dump_wsabuf (const WSABUF *bufs, DWORD num_bufs)
     /* In case some code does a cast from 'struct iovec *' to 'WSABUF *',
      * the below 'dump_data_internal()' would crash.
      */
-    if (IsBadReadPtr(bufs->buf, sizeof(bufs->buf)))
-    {
-      C_printf ("~4%s, bad: 0x%p~0", prefix, bufs->buf);
-      break;
-    }
-    total += dump_data_internal (bufs->buf, bufs->len, prefix);
+    if (IsBadReadPtr(bufs->buf, sizeof(bufs->buf) + bufs->len))
+         C_printf ("~4%*s%s bad: 0x%p, len: %lu~0\n",
+                   g_cfg.trace_indent+2, "", prefix, bufs->buf, bufs->len);
+    else total += dump_data_internal (bufs->buf, bufs->len, prefix);
     if (total >= (UINT)g_cfg.max_data)
        break;
   }
@@ -2177,7 +2175,7 @@ size_t size_fd_set (const fd_set *fd)
    *
    * typedef struct fd_set {
    *         u_int  fd_count;
-   *         SOCKET fd_array[FD_SETSIZE];
+   *         SOCKET fd_array [FD_SETSIZE];
    *       } fd_set;
    *
    * 'FD_SETSIZE' is defined to 64 in <winsock.h> by default.
@@ -2186,6 +2184,11 @@ size_t size_fd_set (const fd_set *fd)
    */
   count = max (64, fd->fd_count);
   size = count * sizeof(SOCKET) + sizeof(u_int);
+
+#ifdef _DEBUG
+  size += sizeof(u_int);  /* for '_DEBUG'-mode, add some extra */
+#endif
+
   return (size);
 }
 
@@ -2193,20 +2196,20 @@ fd_set *copy_fd_set (const fd_set *fd)
 {
   size_t size = size_fd_set (fd);
 
-  return (size == 0 ? NULL : copy_fd_set_to (fd, malloc(size)));
+  return (size == 0 ? NULL : copy_fd_set_to (malloc(size), fd));
 }
 
 /*
  * As above, but 'dst' is allocated prior to this.
  * E.g. by 'alloca()'.
  */
-fd_set *copy_fd_set_to (const fd_set *fd, fd_set *dst)
+fd_set *copy_fd_set_to (fd_set *dst, const fd_set *src)
 {
   u_int i;
 
-  dst->fd_count = fd->fd_count;
-  for (i = 0; i < fd->fd_count; i++)
-      dst->fd_array [i] = fd->fd_array [i];
+  dst->fd_count = src->fd_count;
+  for (i = 0; i < src->fd_count; i++)
+      dst->fd_array [i] = src->fd_array [i];
   return (dst);
 }
 
