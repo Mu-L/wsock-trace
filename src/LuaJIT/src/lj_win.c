@@ -3,6 +3,7 @@
 
 #if defined(_WIN32)
 #include <windows.h>
+#include <stdlib.h>
 
 static HANDLE stdout_hnd = INVALID_HANDLE_VALUE;
 static CONSOLE_SCREEN_BUFFER_INFO console_info;
@@ -10,15 +11,25 @@ static int trace_level = -1;
 
 void ljit_set_color (int color)
 {
-  if (stdout_hnd != INVALID_HANDLE_VALUE)
-     SetConsoleTextAttribute (stdout_hnd, (console_info.wAttributes & ~7) |
-                             (FOREGROUND_INTENSITY | FOREGROUND_GREEN));
-}
+  WORD attr;
 
-void ljit_restore_color (void)
-{
-  if (stdout_hnd != INVALID_HANDLE_VALUE)
-     SetConsoleTextAttribute (stdout_hnd, console_info.wAttributes);
+  if (stdout_hnd == INVALID_HANDLE_VALUE)
+     return;
+
+  switch (color)
+  {
+    case 0:
+         attr = console_info.wAttributes;  /* restore original colors */
+         break;
+    case 1:     /* bright green */
+         attr = (console_info.wAttributes & ~7) | (FOREGROUND_INTENSITY | 2);
+         break;
+    case 2:     /* bright white */
+         attr = (console_info.wAttributes & ~7) | (FOREGROUND_INTENSITY | 7);
+         break;
+  }
+  fflush (stdout);
+  SetConsoleTextAttribute (stdout_hnd, attr);
 }
 
 int *ljit_trace_level (void)
@@ -33,7 +44,7 @@ int ljit_trace_init (void)
   if (trace_level == -1)
   {
     trace_level = 0;
-    env = getenv("LUA_TRACE");
+    env = getenv ("LUA_TRACE");
     if (env)
     {
       trace_level = *env - '0';

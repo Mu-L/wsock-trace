@@ -6,24 +6,22 @@
 
 #if defined(_WIN32)
   #include <stdio.h>
-  #include <process.h>
 
   LJ_TRACE_API int         ljit_trace_init (void);
   LJ_TRACE_API int        *ljit_trace_level (void);
   LJ_TRACE_API void        ljit_set_color (int color);
-  LJ_TRACE_API void        ljit_restore_color (void);
   LJ_TRACE_API const char *ljit_basename (const char *fname);
 
-  #define LJ_TRACE(level, fmt, ...)                       \
-          do {                                            \
-            if (ljit_trace_init() >= level) {             \
-              ljit_set_color (1);                         \
-              printf ("LuaJIT(%d): %s(%u): ",             \
-                      _getpid(), ljit_basename(__FILE__), \
-                      __LINE__);                          \
-              printf (fmt, ##__VA_ARGS__);                \
-              ljit_restore_color();                       \
-            }                                             \
+  #define LJ_TRACE(level, fmt, ...)                        \
+          do {                                             \
+            if (ljit_trace_init() >= level) {              \
+              ljit_set_color (1);                          \
+              printf ("%s(%u): ", ljit_basename(__FILE__), \
+                      __LINE__);                           \
+              ljit_set_color (2);                          \
+              printf (fmt, ##__VA_ARGS__);                 \
+              ljit_set_color (0);                          \
+            }                                              \
           } while (0)
 
 #else
