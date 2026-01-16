@@ -5,7 +5,6 @@
 TODAY       := $(shell date +%d-%B-%Y)
 YEAR        := $(shell date +%Y)
 PYTHON      := py -3
-COMMA       := ,
 THIS_FILE   := Makefile.Windows
 COMMON_FILE := $(TOP_DIR)/Common.Windows
 MAKEFLAGS   += --warn-undefined-variables
@@ -39,11 +38,10 @@ VCRUNTIME_ROOT = $(MSVC_ROOT)/crt/src/vcruntime
 
 USE_ASAN       ?= 0
 USE_ASTYLE     ?= 1
-USE_PP_DEBUG   ?= 1
+USE_PP_DEBUG   ?= 0
 USE_UBSAN      ?= 0
 USE_CRT_DEBUG  ?= 0
-USE_CRT_STATIC ?= 0
-USE_LUAJIT     ?= 1
+USE_LUAJIT     ?= 0
 USE_LWIP       ?= 0
 USE_MONGOOSE   ?= 0
 USE_MP_COMPILE ?= 1
@@ -64,7 +62,12 @@ USE_WSOCK_TRACE ?= 0
 # any macro in 'fake-OpenSSL/openssl/fake-it.h' will cause a
 # signature operation in 'test-signature.exe' to fail.
 #
-USE_OPENSSL ?= 1
+USE_OPENSSL ?= 0
+
+#
+# Option for 'LuaJIT/Makefile.Windows' only:
+#
+USE_52COMPAT ?= 0
 
 define Usage
 
@@ -97,8 +100,25 @@ VCVARS_VER ?=
 #
 # CFLAGS, LDFLAGS and RCFLAGS common to all 'Makefile.Windows' files:
 #
-CFLAGS  = -nologo -Zi -W3 -Fd./$(OBJ_DIR)/vc140.pdb
-LDFLAGS = -nologo -debug -verbose -incremental:no -machine:$(CPU) -subsystem:console # -nxcompat:no
+CFLAGS = -nologo -Zi -W3             \
+         -Fd./$(OBJ_DIR)/vc140.pdb   \
+         -D_CRT_SECURE_NO_DEPRECATE  \
+         -D_CRT_SECURE_NO_WARNINGS   \
+         -D_CRT_NONSTDC_NO_WARNINGS  \
+         -D_CRT_OBSOLETE_NO_WARNINGS \
+         -D_WIN32_WINNT=0x0601       \
+         -DWIN32_LEAN_AND_MEAN       \
+         -D_WINSOCK_DEPRECATED_NO_WARNINGS
+
+ifeq ($(CPU),x64)
+  CFLAGS += -arch:AVX2
+else
+  CFLAGS += -arch:SSE2
+endif
+
+LDFLAGS = -nologo -debug -verbose -incremental:no \
+          -machine:$(CPU) -subsystem:console # -nxcompat:no
+
 RCFLAGS = -nologo -DBITNESS=$(BITS)
 
 #
@@ -148,7 +168,8 @@ else ifeq ($(CC),icx)
   # Intel ICX specifics (it is LLVM based. So very similar to 'clang-cl'):
   #
   CFLAGS += -fms-compatibility \
-            -ferror-limit=5
+            -ferror-limit=5    \
+            -Wno-unused-command-line-argument
 
 else
   $(error $(Usage))
@@ -220,10 +241,23 @@ endif
 
 ifeq ($(USE_CRT_DEBUG),1)
   d  = d
- _D = _d
+  _D = _d
+  CFLAGS += -MDd -Ob0 -Od -RTCs -RTCu \
+            -GS -Gs                   \
+            -D_CRTDBG_MAP_ALLOC       \
+            -FIcrtdbg.h
+
+  #
+  # This is only used in '$(TOP_DIR)/Geo-IP/IPFire/src' code
+  #
+  CFLAGS += -DENABLE_DEBUG
+
+  RCFLAGS += -D_DEBUG=1
+
 else
   d =
- _D =
+  _D =
+  CFLAGS += -MD -Ot -GS- -Oi
 endif
 
 

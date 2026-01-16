@@ -54,25 +54,17 @@ TEST_SRC = test-address.c      \
 
 TEST_PROGS = $(TEST_SRC:.c=.exe)
 
-CFLAGS += -GS-       \
-          -D_CRT_SECURE_NO_WARNINGS  \
-          -D_CRT_NONSTDC_NO_WARNINGS \
-          -D_CRT_OBSOLETE_NO_WARNINGS
-
 LIBLOC_DLL = libloc-$(CPU).dll
 STATIC_LIB = libloc-$(CPU).lib
 IMPORT_LIB = libloc_imp-$(CPU).lib
 
-ifeq ($(USE_CRT_DEBUG),1)
-  CFLAGS += -MDd -RTCu -RTCs    \
-            -D_CRTDBG_MAP_ALLOC \
-            -DENABLE_DEBUG      \
-            -FIcrtdbg.h
-  PY_D = _d
-else
-  CFLAGS += -MD -Ot
-  PY_D =
-endif
+#
+# What to build:
+#
+TARGETS = $(STATIC_LIB) \
+          $(IMPORT_LIB) \
+          $(LIBLOC_DLL) \
+          $(TEST_PROGS)
 
 ifeq ($(USE_ASAN),1)
   CFLAGS  += -DUSE_ASAN -fsanitize=address
@@ -85,27 +77,19 @@ ifeq ($(USE_ASAN),1)
   LDFLAGS += -inferasanlibs
 endif
 
-#
-# What to build:
-#
-TARGETS = $(STATIC_LIB) \
-          $(IMPORT_LIB) \
-          $(LIBLOC_DLL) \
-          $(TEST_PROGS)
-
-CFLAGS += -I. -I./libloc/windows         \
+CFLAGS += -I.                            \
+          -I./libloc/windows             \
           -DLIBLOC_PRIVATE               \
-          -D_WIN32_WINNT=0x601           \
           -DABS_SRCDIR=\"$(ABS_SRCDIR)\" \
           -DLIBLOC_DEFAULT_DATABASE_PATH=\"$(DATABASE_DIR)\"
 
 ifeq ($(USE_OPENSSL),1)
-  CFLAGS      += -I$(OPENSSL_ROOT)/include
-  OPENSSL_LIBS = $(OPENSSL_ROOT)/lib/libcrypto_imp-$(CPU).lib
+  CFLAGS     += -I$(OPENSSL_ROOT)/include
+  OPENSSL_LIB = $(OPENSSL_ROOT)/lib/libcrypto_imp-$(CPU).lib
 else
   CFLAGS += -I../../.. \
             -I./fake-OpenSSL
-  OPENSSL_LIBS =
+  OPENSSL_LIB =
 endif
 
 #
@@ -206,13 +190,12 @@ epilogue:
             $(OBJ_DIR)/test-signature.obj
 
 $(STATIC_LIB): $(LIBLOC_OBJ)
-	lib -nologo -out:$@ -machine:$(CPU) $(LIBLOC_OBJ)
-	@echo
+	$(call create_static_lib, $@, $(LIBLOC_OBJ))
 
 $(IMPORT_LIB): $(LIBLOC_DLL)
 
 $(LIBLOC_DLL): $(OBJ_DIR)/libloc.def $(LIBLOC_OBJ) $(OBJ_DIR)/libloc.res
-	$(call link_DLL, $@, -def:$^ dnsapi.lib $(OPENSSL_LIBS) $(WS2_32_LIB), $(IMPORT_LIB))
+	$(call link_DLL, $@, -def:$^ dnsapi.lib $(OPENSSL_LIB) $(WS2_32_LIB), $(IMPORT_LIB))
 
 libloc/version.h: $(THIS_FILE)
 	$(call generate_c, $@)
@@ -260,7 +243,7 @@ endif
 # We must use Python3.
 # Use the Python launcher to find the default version 3 Python.
 #
-# And with 'USE_CRT_DEBUG = 1', use the debug-version of Python3.
+# And with 'USE_CRT_DEBUG=1', use the debug-version of Python3.
 #
 PYTHON := py -3
 PY_ROOT = $(subst \,/,$(shell $(PYTHON) -c "import sys; print(sys.prefix)"))
@@ -277,7 +260,7 @@ py_%.i: python/%.c FORCE $(OBJ_DIR)/cpp-filter.py $(CC).args
 lua_install/location-lua.lib: lua_install/location.dll
 
 lua_install/location.dll: $(LUA_OBJ) $(OBJ_DIR)/location.res $(LUAJIT_LIB) | lua_install
-	$(call link_DLL, $@, -export:luaopen_location $^ dnsapi.lib $(OPENSSL_LIBS) $(WS2_32_LIB), lua_install/location-lua.lib)
+	$(call link_DLL, $@, -export:luaopen_location $^ dnsapi.lib $(OPENSSL_LIB) $(WS2_32_LIB), lua_install/location-lua.lib)
 
 $(OBJ_DIR)/lua/%.obj: lua/%.c | $(OBJ_DIR)/lua $(CC).args
 	$(call C_compile, $@, $<)
@@ -402,7 +385,10 @@ py3_module: py3_install py3_install/location $(PY_GEN_FILES) $(LIBLOC_DLL)
 	$(call copy_file, $(PY_DLL_FILES), py3_install/)
 	$(call copy_file, $(PY_FILES),     py3_install/location/)
 
-PY_LIB = $(PY_ROOT)/libs/python3$(PY_D).lib
+#
+# For '-MDd', this should become '$(PY_ROOT)/libs/python3_d.lib'
+#
+PY_LIB = $(PY_ROOT)/libs/python3$(_D).lib
 
 py3_install/_location.pyd: $(PY_OBJ) $(IMPORT_LIB) $(OBJ_DIR)/_location.res | py3_install
 	$(call link_PYD, $@, -libpath:$(PY_ROOT)/libs $(PY_OBJ) $(IMPORT_LIB) $(OBJ_DIR)/_location.res $(PY_LIB))
@@ -418,7 +404,7 @@ py3_install/location-importer.py: scripts/location-importer.in
 	@echo
 
 clean:
-	rm -f *.pdb test-*.exe.core link.tmp link.args cl.args clang-cl.args \
+	rm -f *.pdb test-*.exe.core link.tmp link.args cl.args clang-cl.args icx.args \
 	      libloc/version.h ../man/location.1 ../man/location.html
 	rm -fr $(OBJ_DIR)
 	@echo
@@ -470,10 +456,10 @@ define RC_COMMON
   #error "Add a 'RC_DESCRIPTION' first"
   #endif
 
-  #if $(USE_CRT_DEBUG)
-    #define DBG_STRING  "$(CPU), debug"
+  #ifdefine _DEBUG
+    #define RC_DBG_STRING  "$(CPU), debug"
   #else
-    #define DBG_STRING  "$(CPU), release"
+    #define RC_DBG_STRING  "$(CPU), release"
   #endif
 
   #if defined(__clang__)
@@ -508,7 +494,7 @@ define RC_COMMON
         VALUE "LegalTrademarks",  "http://www.gnu.org/licenses/"
         VALUE "OriginalFilename", RC_FILENAME
         VALUE "ProductName",      RC_FILENAME
-        VALUE "ProductVersion",   PACKAGE_VERSION " (" RC_COMPILER ", " DBG_STRING ")"
+        VALUE "ProductVersion",   PACKAGE_VERSION " (" RC_COMPILER ", " RC_DBG_STRING ")"
         VALUE "PrivateBuild",     ""
         VALUE "SpecialBuild",     ""
         VALUE "Comments",         "Built at $(TODAY)"

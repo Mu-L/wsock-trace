@@ -14,12 +14,6 @@ LJ_DLL     = bin/luajit-$(CPU).dll
 LJ_IMP_LIB = lib/luajit-$(CPU).lib
 
 #
-# Local options:
-#
-USE_AMALGATED  ?= 0
-USE_52COMPAT   ?= 0
-
-#
 # From 'src/luajit_rolling.h':
 #
 VER_MAJOR = 2
@@ -27,31 +21,20 @@ VER_MINOR = 1
 VER_MICRO = 0
 VERSION   = $(VER_MAJOR).$(VER_MINOR).$(VER_MICRO)
 
-ifeq ($(USE_CRT_DEBUG),1)
-  CFLAGS += -MDd -Od -D_CRTDBG_MAP_ALLOC -FIcrtdbg.h
-else
-  CFLAGS += -MD -O2
-endif
-
-CFLAGS += -I./src                    \
-          -I./dynasm                 \
-          -I./$(OBJ_DIR)             \
-          -D_CRT_SECURE_NO_DEPRECATE \
-          -DLJ_ARCH_HASFPU=1         \
+CFLAGS += -I./src            \
+          -I./dynasm         \
+          -I./$(OBJ_DIR)     \
+          -DLJ_ARCH_HASFPU=1 \
           -DLUA_USE_ASSERT
 
 ifeq ($(CC),cl)
-  CFLAGS += -wd4244 -wd5287
+  CFLAGS += -wd4005 -wd4244 -wd5287
+else
+  CFLAGS += -Wno-macro-redefined
 endif
 
 ifeq ($(USE_52COMPAT),1)
   CFLAGS += -DLUAJIT_ENABLE_LUA52COMPAT
-endif
-
-ifeq ($(CPU),x64)
-  CFLAGS += -arch:AVX2
-else
-  CFLAGS += -arch:SSE2
 endif
 
 #
@@ -95,71 +78,66 @@ LJ_LIB_SRC = $(addprefix src/, \
                lib_jit.c       \
                lib_ffi.c)
 
-ifeq ($(USE_AMALGATED),1)
-  ALL_SRC = src/ljamalg.c
-else
-  ALL_SRC = $(addprefix src/, \
-              lib_aux.c       \
-              lib_init.c      \
-              lj_alloc.c      \
-              lj_api.c        \
-              lj_asm.c        \
-              lj_assert.c     \
-              lj_bc.c         \
-              lj_bcread.c     \
-              lj_bcwrite.c    \
-              lj_buf.c        \
-              lj_carith.c     \
-              lj_ccall.c      \
-              lj_ccallback.c  \
-              lj_cconv.c      \
-              lj_cdata.c      \
-              lj_char.c       \
-              lj_clib.c       \
-              lj_cparse.c     \
-              lj_crecord.c    \
-              lj_ctype.c      \
-              lj_debug.c      \
-              lj_dispatch.c   \
-              lj_err.c        \
-              lj_ffrecord.c   \
-              lj_func.c       \
-              lj_gc.c         \
-              lj_gdbjit.c     \
-              lj_ir.c         \
-              lj_lex.c        \
-              lj_lib.c        \
-              lj_load.c       \
-              lj_mcode.c      \
-              lj_meta.c       \
-              lj_obj.c        \
-              lj_opt_dce.c    \
-              lj_opt_fold.c   \
-              lj_opt_loop.c   \
-              lj_opt_mem.c    \
-              lj_opt_narrow.c \
-              lj_opt_sink.c   \
-              lj_opt_split.c  \
-              lj_parse.c      \
-              lj_prng.c       \
-              lj_profile.c    \
-              lj_record.c     \
-              lj_serialize.c  \
-              lj_snap.c       \
-              lj_state.c      \
-              lj_str.c        \
-              lj_strfmt.c     \
-              lj_strfmt_num.c \
-              lj_strscan.c    \
-              lj_tab.c        \
-              lj_trace.c      \
-              lj_udata.c      \
-              lj_vmevent.c    \
-              lj_vmmath.c)    \
-              $(LJ_LIB_SRC)
-endif
-
-ALL_SRC += src/lj_win.c
+ALL_SRC = $(addprefix src/, \
+            lib_aux.c       \
+            lib_init.c      \
+            lj_alloc.c      \
+            lj_api.c        \
+            lj_asm.c        \
+            lj_assert.c     \
+            lj_bc.c         \
+            lj_bcread.c     \
+            lj_bcwrite.c    \
+            lj_buf.c        \
+            lj_carith.c     \
+            lj_ccall.c      \
+            lj_ccallback.c  \
+            lj_cconv.c      \
+            lj_cdata.c      \
+            lj_char.c       \
+            lj_clib.c       \
+            lj_cparse.c     \
+            lj_crecord.c    \
+            lj_ctype.c      \
+            lj_debug.c      \
+            lj_dispatch.c   \
+            lj_err.c        \
+            lj_ffrecord.c   \
+            lj_func.c       \
+            lj_gc.c         \
+            lj_gdbjit.c     \
+            lj_ir.c         \
+            lj_lex.c        \
+            lj_lib.c        \
+            lj_load.c       \
+            lj_mcode.c      \
+            lj_meta.c       \
+            lj_obj.c        \
+            lj_opt_dce.c    \
+            lj_opt_fold.c   \
+            lj_opt_loop.c   \
+            lj_opt_mem.c    \
+            lj_opt_narrow.c \
+            lj_opt_sink.c   \
+            lj_opt_split.c  \
+            lj_parse.c      \
+            lj_prng.c       \
+            lj_profile.c    \
+            lj_record.c     \
+            lj_serialize.c  \
+            lj_snap.c       \
+            lj_state.c      \
+            lj_str.c        \
+            lj_strfmt.c     \
+            lj_strfmt_num.c \
+            lj_strscan.c    \
+            lj_tab.c        \
+            lj_trace.c      \
+            lj_udata.c      \
+            lj_vmevent.c    \
+            lj_vmmath.c     \
+            lj_win.c)       \
+            $(LJ_LIB_SRC)
 
 vpath %.c src/host
 
@@ -229,6 +207,7 @@ src/luajit.h: $(OBJ_DIR)/minilua.exe       \
 	$(call gen_to_from, $@, src/luajit_rolling.h $(OBJ_DIR)/luajit_relver.txt)
 	cd src ; \
 	../$< host/genversion.lua luajit_rolling.h ../$(OBJ_DIR)/luajit_relver.txt luajit.h
+	@echo
 
 #
 # 'src/host/genversion.lua' wants to match "(%d+)"
@@ -240,25 +219,25 @@ $(OBJ_DIR)/buildvm.exe: src/luajit.h $(VM_OBJ)
 	$(call link_EXE, $@, $(VM_OBJ))
 
 $(OBJ_DIR)/lj_vm.obj: $(OBJ_DIR)/buildvm.exe
-	$(call run_buildvm, $@, peobj, )
+	$(call run_build_vm, $@, peobj, )
 
 $(OBJ_DIR)/lj_bcdef.h: $(OBJ_DIR)/buildvm.exe
-	$(call run_buildvm, $@, bcdef, $(LJ_LIB_SRC))
+	$(call run_build_vm, $@, bcdef, $(LJ_LIB_SRC))
 
 $(OBJ_DIR)/lj_ffdef.h: $(OBJ_DIR)/buildvm.exe
-	$(call run_buildvm, $@, ffdef, $(LJ_LIB_SRC))
+	$(call run_build_vm, $@, ffdef, $(LJ_LIB_SRC))
 
 $(OBJ_DIR)/lj_folddef.h: $(OBJ_DIR)/buildvm.exe
-	$(call run_buildvm, $@, folddef, src/lj_opt_fold.c)
+	$(call run_build_vm, $@, folddef, src/lj_opt_fold.c)
 
 $(OBJ_DIR)/lj_libdef.h: $(OBJ_DIR)/buildvm.exe
-	$(call run_buildvm, $@, libdef, $(LJ_LIB_SRC))
+	$(call run_build_vm, $@, libdef, $(LJ_LIB_SRC))
 
 $(OBJ_DIR)/lj_recdef.h: $(OBJ_DIR)/buildvm.exe
-	$(call run_buildvm, $@, recdef, $(LJ_LIB_SRC))
+	$(call run_build_vm, $@, recdef, $(LJ_LIB_SRC))
 
 $(OBJ_DIR)/vmdef.lua: $(OBJ_DIR)/buildvm.exe
-	$(call run_buildvm, $@, vmdef, $(LJ_LIB_SRC))
+	$(call run_build_vm, $@, vmdef, $(LJ_LIB_SRC))
 
 bin/luajit.exe: $(OBJ_DIR)/static/luajit.obj $(LUAJIT_LIB) $(OBJ_DIR)/luajit.res | bin
 	$(call link_EXE, $@, $^)
@@ -273,10 +252,10 @@ $(LUAJIT_LIB): $(STATIC_OBJ) $(OBJ_DIR)/lj_vm.obj | lib
 
 ifeq ($(CC)-$(USE_MP_COMPILE),cl-1)
   $(DYNAMIC_OBJ): $(ALL_SRC) | $(OBJ_DIR)/dynamic
-	$(call C_compile_MP, $(OBJ_DIR)/dynamic\\, -DLUA_BUILD_AS_DLL $(ALL_SRC))
+	$(call C_compile_MP, $(OBJ_DIR)/dynamic\\, -DLUA_BUILD_AS_DLL $(ALL_SRC), ALL_SRC/dynamic)
 
   $(STATIC_OBJ): $(ALL_SRC) | $(OBJ_DIR)/static
-	$(call C_compile_MP, $(OBJ_DIR)/static\\, $(ALL_SRC))
+	$(call C_compile_MP, $(OBJ_DIR)/static\\, $(ALL_SRC), ALL_SRC/static)
 endif
 
 $(OBJ_DIR)/dynamic/%.obj: %.c | $(CC).args $(OBJ_DIR)/dynamic
@@ -331,14 +310,14 @@ $(addprefix $(OBJ_DIR)/, \
 
 
 #
-# Local GNU-make macros
+# Local GNU-make macros:
 #
 define run_test
   bin/luajit.exe $(1)
   @echo
 endef
 
-define run_buildvm
+define run_build_vm
   $(call green_msg, Generating VM definition file $(BRIGHT_WHITE)$(strip $(1)))
   $(OBJ_DIR)/buildvm.exe $(strip -m $(2) -o $(1) $(3))
   @echo

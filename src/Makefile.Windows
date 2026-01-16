@@ -13,26 +13,23 @@ include $(TOP_DIR)/Common.Windows
 WSOCK_DLL = wsock_trace$(_D)-$(CPU).dll
 WSOCK_LIB = wsock_trace$(_D)-$(CPU).lib
 
-CFLAGS  += -D_CRT_SECURE_NO_WARNINGS -D_WINSOCK_DEPRECATED_NO_WARNINGS -Oy-
+TARGETS = $(WSOCK_DLL) $(WSOCK_LIB)
 
-CFLAGS += -D_WIN32_WINNT=0x0600 \
-          -DWIN32_LEAN_AND_MEAN \
-          -DUSE_PythonHook=0    \
-          -Oi                   \
-          -I.                   \
-          -I./mhook             \
-          -I$(LIBLOC_ROOT)      \
+CFLAGS += -Oy-               \
+          -I.                \
+          -I./mhook          \
+          -I$(LIBLOC_ROOT)   \
+          -DUSE_PythonHook=0 \
           -DBUILD_DATE=\"$(TODAY)\"
 
 #
 # Extra CFLAGS for 'clang-cl' and 'icx':
 #
 ifneq ($(CC),cl)
-  CFLAGS += -Wno-pragma-pack             \
-            -Wno-missing-braces          \
-            -Wno-unused-function         \
-            -Wno-invalid-source-encoding \
-            -Wno-unused-command-line-argument
+  CFLAGS += -Wno-pragma-pack     \
+            -Wno-missing-braces  \
+            -Wno-unused-function \
+            -Wno-invalid-source-encoding
 endif
 
 #
@@ -40,8 +37,6 @@ endif
 #
 EX_LIBS =
 OS_LIBS = advapi32.lib dnsapi.lib ole32.lib
-
-default: all
 
 WSOCK_SRC = asn.c             \
             common.c          \
@@ -144,21 +139,6 @@ ifeq ($(USE_UBSAN),1)
   CFLAGS  += -DUSE_UBSAN -fsanitize=undefined
 endif
 
-ifeq ($(USE_CRT_STATIC),1)
-  MD = -MT
-else
-  MD = -MD
-endif
-
-ifeq ($(USE_CRT_DEBUG),1)
-  CFLAGS  += $(MD)d -Ob0 -RTCs -RTCu -GS -Gs
-  RCFLAGS += -DDEBUG
-else
-  CFLAGS += $(MD) -Ot -GS-
-endif
-
-TARGETS = $(WSOCK_DLL) $(WSOCK_LIB)
-
 ifeq ($(USE_LUAJIT),1)
   CFLAGS += -DUSE_LUAJIT \
             -I$(LUAJIT_ROOT)/src
@@ -176,10 +156,6 @@ else
 endif
 
 ifeq ($(USE_LWIP),1)
-  ifeq ($(USE_CRT_STATIC),1)
-    $(error 'USE_CRT_STATIC = 1' and 'USE_LWIP = 1' is incompatible.)
-  endif
-
   CFLAGS += -DUSE_LWIP                 \
             -DNO_SYS=1                 \
             -I$(LWIP_ROOT)             \
@@ -220,7 +196,7 @@ epilogue:
 install: all
 	$(call copy_file, $(WSOCK_LIB),                 $(INSTALL_ROOT)/lib)
 	$(call copy_file, $(WSOCK_DLL:.dll=.{dll,pdb}), $(INSTALL_ROOT)/bin)
-	$(call copy_file, ws_tool.{exe$(COMMA)pdb},     $(INSTALL_ROOT)/bin)
+	$(call copy_file, ws_tool.exe ws_tool.pdb,      $(INSTALL_ROOT)/bin)
 
 #
 # Ensure this startup message is correct:
@@ -324,13 +300,13 @@ $(OBJ_DIR)/wsock_trace_d-x86.def: wsock_trace-x86.def $(THIS_FILE) | $(OBJ_DIR)
 
 $(WSOCK_LIB): $(WSOCK_DLL)
 $(WSOCK_DLL): OS_LIBS += winmm.lib
-ws_tool.exe:  OS_LIBS += winmm.lib
 
 #
 # The '$(WSOCK_LIB)' is an import-lib for '$(WSOCK_DLL)'.
+#
 # Since the SDK header <ws2ipdef.h> declares some data with no export
 # declaration ('in6addr_any' etc.), the 'non-export.obj' is simply added to the
-# '$(WSOCK_LIB)' after linking is done.
+# '$(WSOCK_LIB)' after '$(call link_DLL)' is finished.
 #
 $(WSOCK_DLL):                       \
   $(OBJ_DIR)/$(WSOCK_DLL:.dll=.def) \
@@ -357,22 +333,11 @@ endif
 vg-test.exe: $(OBJ_DIR)/vg-test.obj $(WSOCK_LIB)
 	$(call link_EXE, $@, $^)
 
-#
-# The 'winmm.lib' library could be needed for the 'sndPlaySound()' function.
-#
 ws_tool.exe: $(WS_TOOL_OBJ) $(OBJ_DIR)/ws_tool.res $(LIBLOC_LIB) $(LUAJIT_LIB) $(EX_LIBS)
-	$(call link_EXE, $@, $^ $(OS_LIBS))
+	$(call link_EXE, $@, $^ $(OS_LIBS) winmm.lib)
 
-#
-# Needs the dynamic (-MD) compiled version of the 'wxWidget' libraries.
-#
-ifeq ($(USE_CRT_STATIC),1)
-  wx-stkwalk.exe::
-	$(call green_msg, $@ needs $(BRIGHT_WHITE)USE_CRT_STATIC=0)
-else
-  wx-stkwalk.exe: $(OBJ_DIR)/wx-stkwalk.obj
+wx-stkwalk.exe: $(OBJ_DIR)/wx-stkwalk.obj
 	$(call link_EXE, $@, $^ $(wxLDFLAGS) advapi32.lib ole32.lib uuid.lib)
-endif
 
 $(OBJ_DIR)/wx-stkwalk.obj: ../misc-stuff/wx-stkwalk.cpp | $(CC).args $(OBJ_DIR)
 	$(call CPP_compile, $@, $(wxCFLAGS) $<)
@@ -425,7 +390,7 @@ $(LUAJIT_LIB): FORCE
 
 clean:
 	rm -fr $(OBJ_DIR) .vs
-	rm -f link.args cl.args clang-cl.args link.tmp vc1*.pdb
+	rm -f link.args cl.args clang-cl.args icx.args link.tmp vc1*.pdb
 	rm -f wsock_trace*.pdb $(PROGRAMS:.exe=.pdb) $(LIBLOC_LIB) $(LUAJIT_LIB) wx-stkwalk.exe.manifest
 	rm -f ip4-asn-test.* ../ipv6-unicast-address-assignments.csv.BIN
 	$(call build_luajit, clean)
