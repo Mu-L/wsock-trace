@@ -1067,7 +1067,7 @@ static enum cfg_sections lookup_section (const char *section)
 static int parse_config_file (FILE *file)
 {
   const char *key, *val, *section;
-  char        last_section[40];
+  char        last_section [40];
   unsigned    line  = 0;
   unsigned    lines = 0;
   bool        done = false;
@@ -2155,7 +2155,6 @@ size_t write_pcap_packetv (SOCKET s, const WSABUF *bufs, DWORD num_bufs, bool ou
   return (0);
 }
 
-#if defined(_MSC_VER) || (__MSVCRT_VERSION__ >= 0x800)
 /*
  * Ripped from Gnulib:
  */
@@ -2183,31 +2182,26 @@ static void __cdecl invalid_parameter_handler (const wchar_t *expression,
          __FUNCTION__, expression, function, file, line, (void*)dummy);
   RaiseException (STATUS_GNULIB_INVALID_PARAMETER, 0, 0, NULL);
 }
-#endif
 
-static int inv_handler_set = 0;
+static bool inv_handler_set = false;
 
 static void set_invalid_handler (void)
 {
-#if defined(_MSC_VER) || (__MSVCRT_VERSION__ >= 0x800)
   if (g_cfg.trace_level >= 1 && !inv_handler_set)
   {
     _set_invalid_parameter_handler (invalid_parameter_handler);
-    inv_handler_set = 1;
+    inv_handler_set = true;
   }
-#endif
 }
 
 static void reset_invalid_handler (void)
 {
-#if defined(_MSC_VER) || (__MSVCRT_VERSION__ >= 0x800)
   if (inv_handler_set)
      _set_invalid_parameter_handler (NULL);
-  inv_handler_set = 0;
-#endif
+  inv_handler_set = false;
 }
 
-#if defined(_MSC_VER) && defined(_DEBUG)
+#if defined(_DEBUG)
   static _CrtMemState last_state;
 
   void crtdbg_init (void)
@@ -2242,6 +2236,7 @@ static void reset_invalid_handler (void)
     }
     else
       fputs ("No memory leaks detected.\n", stderr);
+
     smartlist_leak_check();
     reset_invalid_handler();
   }

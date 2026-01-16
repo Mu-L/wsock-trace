@@ -296,7 +296,7 @@ bool overlap_transferred (SOCKET s, const WSAOVERLAPPED *ov, DWORD *transferred)
   bool  rc = false;
 
   *transferred = 0;
-  ov_trace_buf[0] = '\0';
+  ov_trace_buf [0] = '\0';
 
   if (p_WSAGetOverlappedResult && HasOverlappedIoCompleted(ov))
   {
