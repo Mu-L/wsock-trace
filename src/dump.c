@@ -2192,11 +2192,22 @@ size_t size_fd_set (const fd_set *fd)
   return (size);
 }
 
-fd_set *copy_fd_set (const fd_set *fd)
+/*
+ * Allocate and return a copy of a 'fd_set'.
+ * Caller must 'free()'
+ */
+fd_set *copy_fd_set (const fd_set *src)
 {
-  size_t size = size_fd_set (fd);
+  size_t  size = size_fd_set (src);
+  fd_set *dst;
 
-  return (size == 0 ? NULL : copy_fd_set_to (malloc(size), fd));
+  if (size == 0)
+     return (NULL);
+
+  dst = malloc (size);
+  if (!dst)
+     return (NULL);
+  return copy_fd_set_to (dst, src);
 }
 
 /*
