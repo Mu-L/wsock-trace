@@ -2250,6 +2250,7 @@ class CLI(object):
 			"ap-northeast-2" : "KR",
 			"ap-northeast-3" : "JP",
 			"ap-east-1"      : "HK",
+			"ap-east-2"      : "TW",
 			"ap-south-1"     : "IN",
 			"ap-south-2"     : "IN",
 			"ap-southeast-1" : "SG",
@@ -2277,12 +2278,14 @@ class CLI(object):
 			# Middle East
 			"me-central-1"   : "AE",
 			"me-south-1"     : "BH",
+			"me-west-1"      : "IL", # Tel Aviv, but not confirmed
 
 			# Mexico
 			"mx-central-1"   : "MX",
 
 			# South America
 			"sa-east-1"      : "BR",
+			"sa-west-1"      : "CL",
 
 			# Undocumented, likely located in Berlin rather than Frankfurt
 			"eusc-de-east-1" : "DE",
