@@ -342,12 +342,35 @@ static bool test_IDNA_func (const char *input, const char *expected_ACE)
  *
  * Works best with a 'c:\> chcp 1252' first.
  */
+static const struct {
+         const char *utf8_text;
+         const char *expected;
+       } idn_test[] = {
+          { u8"seogh\xc3\xb8r.no",                  /* seoghør.no,  Norwegian gossip site */
+            "xn--seoghr-fya.no"
+          },
+          { u8"b\xc3\xbc\cher.de",                  /* bücher.de, German bookstore */
+            "xn--bcher-kva.de"
+          },
+          { u8"\xc3\xb6bb.at",                      /* öbb.at, Austrian Railways */
+            "xn--bb-eka.at"
+          },
+          { u8"r\xc3\xa4ksm\xc3\xb6rg\xc3\xa5s.se", /* räksmörgås.se, Swedish IDN test site */
+            "xn--rksmrgs-5wao1o.se"
+          }
+       };
+
 static void test_IDNA_functions (void)
 {
-  TEST_CONDITION (== true, test_IDNA_func ("seoghør.no",    "xn--seoghr-fya.no"));      /* Norwegian gossip */
+#if 0
+  for (int i = 0; i < DIM(idn_test); i++)
+      TEST_CONDITION (== true, test_IDNA_func (idn_test[i].utf8_text, idn_test[i].expected));
+#else
+  TEST_CONDITION (== true, test_IDNA_func ("seoghør.no",    "xn--seoghr-fya.no"));      /* Norwegian gossip site */
   TEST_CONDITION (== true, test_IDNA_func ("bücher.de",     "xn--bcher-kva.de"));       /* German bookstore */
   TEST_CONDITION (== true, test_IDNA_func ("öbb.at",        "xn--bb-eka.at"));          /* Austrian Railways */
   TEST_CONDITION (== true, test_IDNA_func ("räksmörgås.se", "xn--rksmrgs-5wao1o.se"));  /* Swedish IDN test site */
+#endif
 }
 
 /**
