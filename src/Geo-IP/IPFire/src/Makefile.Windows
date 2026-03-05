@@ -1,7 +1,7 @@
 #
 # GNU Makefile for libloc. Supporting MSVC or clang-cl only.
 #
-# By G. Vanem <gvanem@yahoo.no> 2020 - 2025.
+# By G. Vanem <gvanem@yahoo.no> 2020 - 2026.
 #
 # Ref: https://git.ipfire.org/pub/git/location/libloc.git
 #      https://location.ipfire.org/how-to-use
@@ -195,7 +195,7 @@ $(STATIC_LIB): $(LIBLOC_OBJ)
 $(IMPORT_LIB): $(LIBLOC_DLL)
 
 $(LIBLOC_DLL): $(OBJ_DIR)/libloc.def $(LIBLOC_OBJ) $(OBJ_DIR)/libloc.res
-	$(call link_DLL, $@, -def:$^ dnsapi.lib $(OPENSSL_LIB) $(WS2_32_LIB), $(IMPORT_LIB))
+	$(call link_DLL, $@, -def:$^ dnsapi.lib oldnames.lib $(OPENSSL_LIB) $(WS2_32_LIB), $(IMPORT_LIB))
 
 libloc/version.h: $(THIS_FILE)
 	$(call generate_c, $@)
@@ -391,7 +391,7 @@ py3_module: py3_install py3_install/location $(PY_GEN_FILES) $(LIBLOC_DLL)
 PY_LIB = $(PY_ROOT)/libs/python3$(_D).lib
 
 py3_install/_location.pyd: $(PY_OBJ) $(IMPORT_LIB) $(OBJ_DIR)/_location.res | py3_install
-	$(call link_PYD, $@, -libpath:$(PY_ROOT)/libs $(PY_OBJ) $(IMPORT_LIB) $(OBJ_DIR)/_location.res $(PY_LIB))
+	$(call link_PYD, $@, -libpath:$(PY_ROOT)/libs $(PY_OBJ) $(IMPORT_LIB) $(OBJ_DIR)/_location.res oldnames.lib $(PY_LIB))
 
 py3_install/location.py: scripts/location.in
 	$(call generate, $@, #)
@@ -456,7 +456,7 @@ define RC_COMMON
   #error "Add a 'RC_DESCRIPTION' first"
   #endif
 
-  #ifdefine _DEBUG
+  #ifdef _DEBUG
     #define RC_DBG_STRING  "$(CPU), debug"
   #else
     #define RC_DBG_STRING  "$(CPU), release"
