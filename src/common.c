@@ -16,6 +16,7 @@
 #include <sys/stat.h>
 #include <errno.h>
 #include <share.h>
+#include <locale.h>
 
 #include "common.h"
 #include "smartlist.h"
@@ -183,6 +184,19 @@ void common_init (void)
   C_end = C_ptr + TRACE_BUF_SIZE - 1;
   sock_list = smartlist_new();
   device_to_paths_map = smartlist_new();
+
+  /* Explicitly set UTF-8 locale. Try multiple locale formats
+   * for compatibility across Windows versions.
+   */
+  if (!setlocale(LC_CTYPE, ".UTF-8") ||
+      !setlocale(LC_CTYPE, ".UTF8") ||
+      !setlocale(LC_CTYPE, "en_US.UTF-8"))
+     setlocale (LC_CTYPE, "C.UTF-8");
+
+  /* Also set console code page to UTF-8.
+   */
+  SetConsoleOutputCP (CP_UTF8);
+  SetConsoleCP (CP_UTF8);
 }
 
 void common_exit (void)
