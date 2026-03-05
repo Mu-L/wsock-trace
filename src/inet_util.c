@@ -612,7 +612,7 @@ int INET_util_addr_is_multicast (const struct in_addr *ip4, const struct in6_add
   }
   else if (ip6)
   {
-    if (ip6->s6_bytes[0] == 0xFF) /* ff00::/8, Global multicast */
+    if (ip6->s6_bytes[0] == 0xFF) /* ff00::/8, Global multicast. IN6_IS_ADDR_MULTICAST(ip6) */
        return (1);
   }
   return (0);
@@ -653,6 +653,8 @@ int INET_util_addr_is_special (const struct in_addr *ip4, const struct in6_addr 
     }
 
     /* 100.64.0.0/10, https://whois.arin.net/rest/net/NET-100-64-0-0-1
+     * Or "Dedicated space for carrier-grade NAT deployment".
+     * \ref https://en.wikipedia.org/wiki/Private_network
      */
     if (ip4->S_un.S_un_b.s_b1 == 100 &&
         (ip4->S_un.S_un_b.s_b2 >= 64 && ip4->S_un.S_un_b.s_b2 <= 127))
@@ -698,6 +700,17 @@ int INET_util_addr_is_special (const struct in_addr *ip4, const struct in6_addr 
       SET_REMARK ("ISATAP");
       return (1);
     }
+
+    /*
+     * Other Multicast cases:
+     */
+#if 0
+    if (IN6_IS_ADDR_MC_NODELOCAL(ip6))
+    if (IN6_IS_ADDR_MC_LINKLOCAL(ip6))
+    if (IN6_IS_ADDR_MC_SITELOCAL(ip6))
+    if (IN6_IS_ADDR_MC_ORGLOCAL(ip6))
+    if (IN6_IS_ADDR_MC_GLOBAL(ip6))
+#endif
 
     /**
      * Teredo in RFC 4380 is `2001:0::/32`: \n
@@ -786,6 +799,7 @@ const char *INET_util_get_ip_num (const struct in_addr *ip4, const struct in6_ad
 
   if (ip4)
      return _ultoa (swap32(ip4->s_addr), buf, 10);
+
   if (ip6)
   {
     dword = (const u_long*) &ip6->s6_bytes[0];
@@ -794,8 +808,8 @@ const char *INET_util_get_ip_num (const struct in_addr *ip4, const struct in6_ad
   }
   else
   {
-    buf[0] = '?';
-    buf[1] = '\0';
+    buf [0] = '?';
+    buf [1] = '\0';
   }
   return (buf);
 }
