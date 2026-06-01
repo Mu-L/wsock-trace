@@ -1669,6 +1669,20 @@ static const char *dump_sol_socket (char *buf, size_t buf_sz, int opt, const cha
   return (NULL);
 }
 
+static const char *dump_so_error (char *buf, size_t buf_sz, int opt, const char *opt_val, int opt_len)
+{
+  char buf2 [100];
+  int  err;
+
+  if (opt == SO_ERROR && opt_len >= sizeof(int))
+  {
+    err = *(const int*) opt_val;
+    snprintf (buf, buf_sz, "'== %s'", ws_strerror(err, buf2, sizeof(buf2)));
+    return (buf);
+  }
+  return (NULL);
+}
+
 const char *sockopt_value (int level, int opt, const char *opt_val, int opt_len)
 {
   static  char buf [500];
@@ -1703,8 +1717,14 @@ const char *sockopt_value (int level, int opt, const char *opt_val, int opt_len)
     }
   }
 
-  if (level == SOL_SOCKET && dump_sol_socket(buf, sizeof(buf), opt, opt_val, opt_len))
-     return (buf);
+  if (level == SOL_SOCKET)
+  {
+    if (dump_sol_socket(buf, sizeof(buf), opt, opt_val, opt_len))
+       return (buf);
+
+    if (dump_so_error(buf, sizeof(buf), opt, opt_val, opt_len))
+       return (buf);
+  }
 
   switch (opt_len)
   {
